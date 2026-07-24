@@ -109,8 +109,12 @@ class Settings(BaseSettings):
     gex_pin_pct: float = 0.20
     # |net_gex| > total_abs_gex * 0.20 -> pin/trend
 
-    nde_pct_threshold: float = 0.20
-    # |nde| > total_abs_nde * 0.20 -> confirms/contradicts
+    nde_pct_threshold: float = 0.10
+    # |nde| > total_abs_nde * 0.10 -> confirms/contradicts
+    # Relaxed 0.20 -> 0.10 (ADR-025): near-ATM call (+delta) and put (-delta)
+    # exposure cancel in the numerator while the gross denominator adds, so net
+    # delta sits well under a 20% bar even in a real directional flow. Provisional
+    # — refine from the nde/total_abs_nde distribution in score_audit.py.
 
     vega_high_pct: float = 0.40
     # atm_vega_exposure > total_abs_vega * 0.40 -> vega trap

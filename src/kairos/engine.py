@@ -467,6 +467,15 @@ def evaluate(
     # ── Build summary_raw ─────────────────────────────────────────────────
     summary_raw = _build_summary_raw(conditions, total_score, max_score, iv_capped, dte)
 
+    # C3 raw telemetry (ADR-025): persist the normalized Greeks reads every cycle
+    # so execution/score_audit.py can calibrate nde/gex thresholds from measured
+    # distributions instead of assumed units.
+    gex_ratio = cluster.net_gex / cluster.total_abs_gex if cluster.total_abs_gex else 0.0
+    nde_ratio = (
+        cluster.net_delta_exposure / cluster.total_abs_nde if cluster.total_abs_nde else 0.0
+    )
+    summary_raw += f"\n📐 c3_raw: gex={gex_ratio:+.3f} nde={nde_ratio:+.3f} pcr={cluster.pcr:.2f}"
+
     return EnvironmentScore(
         timestamp=datetime.now(IST),
         symbol=session_config.symbol,

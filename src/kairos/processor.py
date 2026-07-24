@@ -273,7 +273,12 @@ def score_oi_flow(
         and iv_change_rate < settings.vega_trap_iv_threshold
     )
 
-    # ── STEP 5: PCR confirmation ────────────────────────────────────────
+    # ── STEP 5: PCR context (ADR-025 — no longer a green gate) ──────────
+    # PCR, GEX-sign and NDE-sign are three weighted reads of the SAME call/put
+    # OI imbalance, so requiring all three to "confirm" a phase was self-
+    # contradictory (bearish needs call-heavy PCR but put-heavy GEX; bullish
+    # needs put-heavy PCR/GEX but call-heavy NDE). PCR is retained only as
+    # descriptive context in the reason string, not as a gate.
     pcr_confirms = (
         (phase_is_bearish and cluster.pcr < settings.pcr_bearish_threshold)
         or (phase_is_bullish and cluster.pcr > settings.pcr_bullish_threshold)
@@ -340,18 +345,25 @@ def score_oi_flow(
             "Theta dominant — writers entrenched, premium decay accelerating",
         )
 
-    # RULE D: ALL conditions must pass for score=1
-    if gex_state == "trend" and nde_state == "confirms" and pcr_confirms:
+    # RULE D: NDE conviction confirms the directional phase → score=1 (ADR-025).
+    # By this point the hard vetoes have already cleared: not a vega trap, NDE not
+    # contradicting, not a GEX pin, not a neutral phase, and not theta-dominant
+    # (unless NDE confirms). Direction now rests on the price×OI phase plus the
+    # net-delta positioning — GEX "trend" and PCR are reported as context only, so
+    # a genuine trend is no longer blocked by the correlated-lens contradiction.
+    if nde_state == "confirms":
         direction = "bearish" if phase_is_bearish else "bullish"
+        gex_note = "GEX amplifying" if gex_state == "trend" else "GEX neutral"
+        pcr_note = "PCR aligned" if pcr_confirms else "PCR divergent"
         return _make_result(
             1,
-            f"Unified {direction} conviction — GEX trending, NDE confirms, PCR aligned",
+            f"{direction.capitalize()} conviction — NDE confirms ({gex_note}, {pcr_note})",
         )
 
     # Default fallback → score=0
     return _make_result(
         0,
-        "Mixed signals — partial conviction, wait for alignment",
+        "No directional conviction — NDE not confirming the phase",
     )
 
 
@@ -414,7 +426,7 @@ def consolidate_oi_flow(
     elif green_count >= settings.oi_consensus_green_threshold:
         score_val = 1
         direction = "bearish" if phase_is_bearish else "bullish"
-        reason = f"Unified {direction} conviction (Consensus {green_count}/{len(buffer)}) — GEX trending, NDE confirms, PCR aligned"
+        reason = f"{direction.capitalize()} conviction (Consensus {green_count}/{len(buffer)}) — NDE confirms the phase"
     else:
         score_val = 0
         if phase_is_neutral:

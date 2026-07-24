@@ -40,8 +40,10 @@ Based on the current score and specifically the state of the Implied Volatility 
 **Weight:** 1 Point | **Time Parameter:** 15-Minute Rolling Baseline + 8-Minute Rolling Consensus Filter (ADR-021)
 **Logic:** A full-chain evaluation that cross-verifies price action phases against institutional positioning (GEX, NDE, Vega). To stabilize the 1-minute signal, an 8-minute rolling consensus filter (T-0 to T-7) is applied to the raw outputs. The final status is GREEN (1 Pt) only if at least 5 out of the last 8 cycles are raw GREEN, and the reported phase is the mode (most frequent) of those 8 cycles. If a Vega Trap or GEX Pin occurs in >= 3 of the last 8 cycles, the score is immediately forced to RED (0 Pts) for risk safety.
 
-#### Evaluation Logic (Priority-Ordered)
+#### Evaluation Logic (Priority-Ordered, ADR-025)
 The engine evaluates the following metrics in a strict hierarchy. If any high-priority "AVOID" rule is triggered, the final score for this condition is **RED (0 Pts)** regardless of the trend phase.
+
+> **Design note (ADR-025):** GEX sign, NDE sign, and PCR are three differently-weighted reads of the *same* call/put OI imbalance. The original gate required all three to "confirm" the phase simultaneously, which is self-contradictory (a bearish confirm needs a call-heavy PCR but a put-heavy GEX; a bullish confirm needs a put-heavy GEX/PCR but a call-heavy NDE) — verified against live alerts where GEX read "trend" 0/14 times. The lenses are therefore **decoupled**: GEX vetoes pins (volatility regime), phase + NDE carry direction (conviction), and PCR is descriptive context only.
 
 1.  **Vega Trap Gate (Rule B):**
     *   **Trigger:** High ATM Vega Exposure + Contracting IV Rate.
@@ -56,16 +58,18 @@ The engine evaluates the following metrics in a strict hierarchy. If any high-pr
 4.  **Theta Dominance:**
     *   **Trigger:** High Theta Burn Rate WITHOUT confirming NDE momentum.
     *   **Result:** 🔴 RED (0 Pts). Time decay is the dominant force; professional writers are in control.
-5.  **Directional Phase Mapping (Unified Conviction):**
-    *   **GREEN (1 Pt):** Transition to **Long Buildup** or **Short Buildup** verified by **GEX Trend** (dealers amplifying moves) and aligned **PCR**.
-    *   **RED (0 Pts):** Neutral phases, "Straddle Writing" environments, or "Pullback" phases (Short Covering / Long Unwinding).
+5.  **Directional Phase Mapping (Rule D — NDE Conviction):**
+    *   **GREEN (1 Pt):** A directional **Long Buildup** or **Short Buildup** phase whose direction is confirmed by **NDE** positioning. GEX "trend" (dealers amplifying) and PCR alignment are reported as context/strengtheners, never required.
+    *   **RED (0 Pts):** Neutral phases, NDE below the conviction bar, or "Pullback" phases (Short Covering / Long Unwinding).
 
 | Metric | Threshold (Dynamic Default) | Role |
 |---|---|---|
-| GEX Area | > 20% of Total Absolute Chain GEX | Determines if dealers pin (absorb) or trend (amplify) moves. |
-| NDE Limit | > 20% of Total Absolute Chain NDE | Verifies directional bias and checks for trapped positioning. |
-| PCR Bias | Bull: > 1.05 / Bear: < 0.95 | Confirms alignment of the broader chain sentiment. |
+| GEX Area | > 20% of Total Absolute Chain GEX | **Veto only**: pins (absorb) force RED; "trend" (amplify) is context. |
+| NDE Limit | > 10% of Total Absolute Chain NDE (ADR-025, provisional) | The directional conviction gate; contradiction still hard-vetoes. |
+| PCR Bias | Bull: > 1.05 / Bear: < 0.95 | **Context only** — shown in alerts, no longer gates the score. |
 | Vega Trap | > 40% of Total Chain Vega + IV Δ < 0 | Prevents entries into aggressive IV-contraction (theta trap) zones. |
+
+Every cycle also appends a `📐 c3_raw: gex=… nde=… pcr=…` telemetry line to `summary_raw`, feeding `execution/score_audit.py` so these bars are recalibrated from measured distributions.
 
 ### Condition 4: Averaged Gamma/Theta Ratio (DTE-Scaled)
 **Weight:** 1 Point | **Time Parameter:** Days To Expiry (DTE)

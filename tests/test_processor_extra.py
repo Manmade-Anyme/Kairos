@@ -99,13 +99,15 @@ def test_score_oi_flow_nde_contradicts(make_cluster, make_candle):
     assert "NDE contradicts phase" in res_oi.reason
 
 def test_score_oi_flow_fallback(make_cluster, make_candle):
-    # Mixed signals fallback (line 345)
+    # Fallback: directional phase but NDE neutral (default 0.0) → no conviction (ADR-025).
+    # PCR no longer gates, so the reason names the NDE bar, not "mixed signals".
     cluster = make_cluster(22000, ce_oi_change=10000, pe_oi_change=10000)
     cluster.price_change = 10.0 # Bullish
-    cluster.pcr = 0.8 # < 1.05 (threshold) -> pcr_confirms False
+    cluster.pcr = 0.8 # divergent — context only, does not block
     buf = deque([make_candle(22000)] * 10, maxlen=15)
     res_cond, res_oi = score_oi_flow(cluster, 0.5, buf)
-    assert "Mixed signals" in res_oi.reason
+    assert res_cond.points == 0
+    assert "No directional conviction" in res_oi.reason
 
 def test_score_gamma_theta_exact_red(make_atm):
     # ratio <= yellow_thresh (line 420)
@@ -164,7 +166,9 @@ def test_score_oi_flow_unified_conviction(make_cluster, make_candle):
     buf = deque([make_candle(22000)] * 10, maxlen=15)
     res_cond, res_oi = score_oi_flow(cluster, 0.5, buf)
     assert res_cond.status == "GREEN"
-    assert "Unified bullish conviction" in res_oi.reason
+    assert "Bullish conviction" in res_oi.reason
+    assert "GEX amplifying" in res_oi.reason
+    assert "PCR aligned" in res_oi.reason
 
 def test_score_gamma_theta_dte2(make_atm):
     # dte=2 (ADR-024 recalibrated bars): green > 2.25, yellow > 1.10

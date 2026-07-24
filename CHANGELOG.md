@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- **OI Flow Self-Contradictory Green Gate (ADR-025)**: Condition 3 required GEX="trend",
+  NDE="confirms", and PCR alignment simultaneously — three correlated reads of the same call/put
+  OI imbalance that can never all confirm one phase (bearish blocked by PCR, bullish by NDE);
+  live tape showed GEX "trend" 0/14 cycles and NDE "ambiguous" 13/14.
+  - RULE D is now `nde_state == "confirms"`: direction is carried by the price×OI phase plus NDE
+    conviction. GEX participates only as the pin veto ("trend" is a reported strengthener); PCR is
+    demoted to descriptive context ("PCR aligned"/"PCR divergent").
+  - `nde_pct_threshold` relaxed 0.20 → 0.10 (provisional) — near-ATM call/put delta exposure
+    cancels in the net while adding in the gross, so 20% was rarely reachable.
+  - All safety vetoes unchanged: vega trap, NDE contradiction, GEX pin, neutral phase, theta
+    dominance, and the 5-of-8 consensus filter.
+  - Added `📐 c3_raw: gex/nde/pcr` telemetry to `summary_raw` each cycle; `score_audit.py` parses
+    it (`c3_gex_ratio`, `c3_nde_ratio`, `c3_pcr`) so the provisional bars get data-driven refinement.
 - **8/8 Score Ceiling (ADR-024)**: Audit found a perfect score was structurally unreachable —
   Condition 7's strict VWAP bands contradicted the trend conditions (C2/C5/C6), capping any
   genuine trend day at 7/8, while Condition 4's thresholds were ~4–5 orders of magnitude below

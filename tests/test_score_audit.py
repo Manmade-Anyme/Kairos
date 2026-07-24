@@ -25,7 +25,8 @@ SAMPLE_SUMMARY = (
     "🟢 gamma_theta: Ratio 1.989443 (DTE≥3 scale) — Gamma favored [1/1]\n"
     "🟢 pdhl_breakout: Below PDL 24136 — bearish breakout [1/1]\n"
     "🟢 move_ratio: Ratio 4.34 (realized 0.47% / implied 0.11%) — delivering > priced [1/1]\n"
-    "🟢 vwap_distance: 0.15% below VWAP 24092 — room to run [1/1]"
+    "🟢 vwap_distance: 0.15% below VWAP 24092 — room to run [1/1]\n"
+    "📐 c3_raw: gex=+0.42 nde=-0.07 pcr=0.93"
 )
 
 
@@ -50,6 +51,9 @@ def test_parse_summary_metrics_full():
     assert metrics["gamma_theta_ratio"] == 1.989443
     assert metrics["move_ratio"] == 4.34
     assert metrics["vwap_distance_pct"] == 0.15
+    assert metrics["c3_gex_ratio"] == 0.42
+    assert metrics["c3_nde_ratio"] == -0.07
+    assert metrics["c3_pcr"] == 0.93
 
 
 def test_parse_summary_metrics_empty():

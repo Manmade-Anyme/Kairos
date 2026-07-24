@@ -27,6 +27,7 @@ This directory acts as the historical log of all critical architectural decision
 | ADR-022 | Dynamic Supabase Bridge Authentication & Recovery | 2026-06-19 | Active |
 | ADR-023 | 15-Minute Rolling Window for OI Flow | 2026-06-29 | Active |
 | ADR-024 | Trend-Aware VWAP Bands & Measured-Distribution Calibration | 2026-07-24 | Active |
+| ADR-025 | OI Flow Decoupled Gates (GEX Veto / NDE Conviction / PCR Context) | 2026-07-24 | Active |
 
 
 

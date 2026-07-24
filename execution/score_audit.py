@@ -48,6 +48,10 @@ METRIC_PATTERNS = {
     "gamma_theta_ratio": re.compile(r"gamma_theta: Ratio (\d+(?:\.\d+)?)"),
     "move_ratio": re.compile(r"move_ratio: Ratio (\d+(?:\.\d+)?)"),
     "vwap_distance_pct": re.compile(r"vwap_distance: (\d+(?:\.\d+)?)% (?:above|below)"),
+    # C3 raw telemetry line (ADR-025): "📐 c3_raw: gex=+0.42 nde=-0.07 pcr=0.93"
+    "c3_gex_ratio": re.compile(r"c3_raw: gex=([+-]?\d+(?:\.\d+)?)"),
+    "c3_nde_ratio": re.compile(r"c3_raw:.* nde=([+-]?\d+(?:\.\d+)?)"),
+    "c3_pcr": re.compile(r"c3_raw:.* pcr=(\d+(?:\.\d+)?)"),
 }
 
 

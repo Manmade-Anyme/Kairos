@@ -47,9 +47,11 @@ Decouple the three lenses so each carries the meaning it actually measures:
    "trend"` is **no longer required** for green; when present it is reported in the reason
    string ("GEX amplifying") as a strengthener.
 2. **Direction = phase + NDE.** The trend phase (price Δ × OI Δ — independent of the OI
-   imbalance) selects the direction; NDE **confirms** it. New RULE D:
-   `nde_state == "confirms"` → score 1. `nde_pct_threshold` relaxed **0.20 → 0.10**
-   (provisional) to account for the ATM delta-cancellation effect.
+   imbalance) selects the direction; NDE **confirms** it. New RULE D: a **buildup** phase
+   (Long/Short Buildup only — pullback phases Short Covering / Long Unwinding remain excluded
+   as exit flows, per the scoring contract) with `nde_state == "confirms"` → score 1.
+   `nde_pct_threshold` relaxed **0.20 → 0.10** (provisional) to account for the ATM
+   delta-cancellation effect.
 3. **PCR → dropped as a gate** (user decision). It remains in `OIFlowResult`/alerts as
    descriptive context ("PCR aligned" / "PCR divergent") and is no longer able to block a green.
 4. **All safety vetoes unchanged**: vega trap (RULE B), NDE contradiction (RULE C), GEX pin

@@ -121,7 +121,7 @@ def test_evaluate_honest_8_of_8(make_candle, make_option_row, mock_now, mock_dat
     assert vwap_cond.status == "GREEN"
     assert "trend-mode" in vwap_cond.detail
 
-    assert score.iv_capped == False
+    assert not score.iv_capped
     assert score.max_score == 8
     assert score.score == 8
     assert score.status == "GO"

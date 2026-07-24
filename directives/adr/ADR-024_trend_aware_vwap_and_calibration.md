@@ -87,7 +87,7 @@ API units.**
 - [x] Honest 8/8 regression test passes through real code paths (`test_evaluate_honest_8_of_8`)
 - [x] `breakout=None` path byte-identical to previous behavior
 - [x] Recalibrated C4 tiers discriminate at realistic Dhan magnitudes
-- [x] Full pytest suite green (142 tests)
+- [x] Full pytest suite green
 - [ ] `score_audit.py` run against ≥2 weeks of live data; thresholds refined from the report
 
 ## Known Risks & Mitigation

@@ -345,12 +345,21 @@ def score_oi_flow(
             "Theta dominant — writers entrenched, premium decay accelerating",
         )
 
-    # RULE D: NDE conviction confirms the directional phase → score=1 (ADR-025).
+    # Pullback phases (Short Covering / Long Unwinding) are exit flows, not fresh
+    # conviction — never traded per the scoring contract, even if NDE aligns.
+    if phase in (TrendPhase.SHORT_COVERING, TrendPhase.LONG_UNWINDING):
+        return _make_result(
+            0,
+            f"Pullback phase ({phase.value}) — exit flow, not fresh conviction",
+        )
+
+    # RULE D: NDE conviction confirms the buildup phase → score=1 (ADR-025).
     # By this point the hard vetoes have already cleared: not a vega trap, NDE not
-    # contradicting, not a GEX pin, not a neutral phase, and not theta-dominant
-    # (unless NDE confirms). Direction now rests on the price×OI phase plus the
-    # net-delta positioning — GEX "trend" and PCR are reported as context only, so
-    # a genuine trend is no longer blocked by the correlated-lens contradiction.
+    # contradicting, not a GEX pin, not a neutral or pullback phase, and not
+    # theta-dominant (unless NDE confirms). Direction now rests on the price x OI
+    # buildup phase plus the net-delta positioning — GEX "trend" and PCR are
+    # reported as context only, so a genuine trend is no longer blocked by the
+    # correlated-lens contradiction.
     if nde_state == "confirms":
         direction = "bearish" if phase_is_bearish else "bullish"
         gex_note = "GEX amplifying" if gex_state == "trend" else "GEX neutral"
@@ -505,7 +514,7 @@ def score_gamma_theta(atm: ATMStrikes, dte: int) -> ConditionResult:
     # expressed per point² (e.g. 0.00047). Dividing by spot_price converts theta to a
     # % basis, making both quantities dimensionally compatible for a meaningful ratio.
     theta_normalized = theta / atm.spot_price
-    ratio = round(gamma / theta_normalized, 6)  # real Dhan payloads land this in the ~0.5–3.0 range
+    ratio = round(gamma / theta_normalized, 6)  # real Dhan payloads land this in the ~0.5-3.0 range
 
     # Select thresholds based on DTE
     if dte >= 3:

@@ -214,7 +214,7 @@ class TestFullGreen:
 
     def test_bearish_green_in_call_heavy_tape(self, make_cluster, make_candle):
         """ADR-025 regression — the live 2026-07-22 regime: Short Buildup with
-        call-heavy chain (PCR < 1 → GEX neutral/positive-lean). Pre-fix this was
+        call-heavy chain (PCR < 1, GEX neutral/positive-lean). Pre-fix this was
         unreachable because bearish PCR-confirm (call-heavy) and GEX-trend
         (put-heavy) were mutually exclusive. Now: phase + NDE carry direction."""
         cluster, buf = _cluster(
@@ -222,7 +222,7 @@ class TestFullGreen:
             price_change=-10.0,              # bearish
             net_gex=0.0,                     # neutral — exactly what live tape showed
             net_delta_exposure=-500_000.0,   # net short delta confirms the fall
-            pcr=0.90,                        # call-heavy tape (like live 0.73–0.96)
+            pcr=0.90,                        # call-heavy tape (like live 0.73-0.96)
         )
         cond, oi = score_oi_flow(cluster, iv_change_rate=0.5, candle_buffer=buf)
         assert cond.points == 1
@@ -242,6 +242,21 @@ class TestFullGreen:
         cond, oi = score_oi_flow(cluster, iv_change_rate=0.5, candle_buffer=buf)
         assert cond.points == 1
         assert "PCR divergent" in oi.reason
+
+    def test_pullback_phase_never_green(self, make_cluster, make_candle):
+        """Short Covering (price up on OI unwind) is exit flow, not fresh
+        conviction — RED even when NDE aligns with the direction (scoring
+        contract: pullback phases are never traded)."""
+        cluster, buf = _cluster(
+            make_cluster, make_candle,
+            price_change=10.0,               # price rising...
+            ce_oi=-6000, pe_oi=-6000,        # ...on OI unwind: SHORT_COVERING
+            net_delta_exposure=500_000.0,    # NDE would confirm the bullish side
+            pcr=1.10,
+        )
+        cond, oi = score_oi_flow(cluster, iv_change_rate=0.5, candle_buffer=buf)
+        assert cond.points == 0
+        assert "Pullback" in oi.reason
 
     def test_nde_neutral_stays_red(self, make_cluster, make_candle):
         """Directional phase but NDE under the conviction bar → score=0."""

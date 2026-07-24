@@ -135,9 +135,9 @@ class Settings(BaseSettings):
 
     # ── Condition 4: Gamma/Theta — DTE-scaled ────────────────────────────
     # Ratio = gamma / (abs(theta) / spot). With real Dhan payloads this lands in
-    # the ~0.5–3.0 range (live sample: 1.99 at DTE=6), NOT the 0.0000xx range the
+    # the ~0.5-3.0 range (live sample: 1.99 at DTE=6), NOT the 0.0000xx range the
     # original thresholds assumed — those made C4 unconditionally GREEN.
-    # Bars below are provisional (old tier proportions × observed scale); refine
+    # Bars below are provisional (old tier proportions x observed scale); refine
     # from measured distributions via execution/score_audit.py.
     # DTE >= 3 (lenient — early week, plenty of time)
     gamma_theta_dte_high_green: float = 1.5        # DTE≥3 lenient

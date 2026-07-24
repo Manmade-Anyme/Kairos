@@ -222,6 +222,9 @@ async def main() -> None:
     await db.start()
     try:
         rows = await db.fetch_environment_log(days=args.days)
+    except Exception as e:
+        print(f"Failed to fetch environment_log history — aborting audit: {e}")
+        sys.exit(1)
     finally:
         await db.stop()
 

@@ -66,17 +66,27 @@ def test_score_momentum_red_choppy(make_candle):
 
 
 def test_score_gamma_theta_dte3(make_atm):
-    # Realistic Dhan-scale Greeks: 
+    # Realistic Dhan-scale Greeks:
     # gamma = 0.00132, theta = -15.1539, spot = 22000
     # theta_normalized = 15.1539 / 22000 = 0.0006888...
-    # ratio = 0.00132 / 0.0006888 = 1.916... → GREEN at DTE≥3 (thresh 0.00025)
+    # ratio = 0.00132 / 0.0006888 = 1.916... → GREEN at DTE≥3 (green bar 1.5)
     atm = make_atm(22000, ce_gamma=0.00132, ce_theta=-15.1539)
     res = score_gamma_theta(atm, 3)
     assert res.status == "GREEN"
 
-    # At DTE=1, thresh is 0.00020. 1.916 is still well above.
+    # At DTE=1 the expiry-day bar is much stricter (green 3.75, yellow 1.50):
+    # the same 1.916 gamma edge is only borderline — YELLOW, not a free GREEN.
     res = score_gamma_theta(atm, 1)
-    assert res.status == "GREEN"
+    assert res.status == "YELLOW"
+
+
+def test_score_gamma_theta_theta_dominant_red(make_atm):
+    # Weak gamma vs heavy decay: ratio = 0.0002 / (15.1539/22000) = 0.29
+    # falls below every yellow bar → RED. The pre-ADR-024 thresholds (0.00008)
+    # would have wrongly scored this as GREEN.
+    atm = make_atm(22000, ce_gamma=0.0002, ce_theta=-15.1539)
+    res = score_gamma_theta(atm, 3)
+    assert res.status == "RED"
 
 def test_score_gamma_theta_normalization_verification(make_atm):
     """
@@ -152,3 +162,44 @@ def test_score_vwap_distance_red(make_candle):
 
     res = score_vwap_distance(22500, buf) # 500 pts distance (> 2.0%)
     assert res.status == "RED"
+
+
+def test_score_vwap_distance_trend_mode_green(make_candle):
+    buf = deque([make_candle(22000, vwap=22000)], maxlen=15)
+    # 0.45% above VWAP: RED under range bands, but GREEN in a bullish breakout
+    # riding the correct side of VWAP (ADR-024 trend-mode).
+    res = score_vwap_distance(22100, buf, breakout="bullish")
+    assert res.status == "GREEN"
+    assert "trend-mode" in res.detail
+
+
+def test_score_vwap_distance_trend_mode_bearish(make_candle):
+    buf = deque([make_candle(22000, vwap=22000)], maxlen=15)
+    # 0.41% below VWAP during a bearish breakdown → trend-mode GREEN.
+    res = score_vwap_distance(21910, buf, breakout="bearish")
+    assert res.status == "GREEN"
+    assert "trend-mode" in res.detail
+
+
+def test_score_vwap_distance_trend_mode_wrong_side(make_candle):
+    buf = deque([make_candle(22000, vwap=22000)], maxlen=15)
+    # Bullish breakout but price crossed back BELOW VWAP — the adverse crossing
+    # keeps the strict mean-reversion bands (0.32% → YELLOW).
+    res = score_vwap_distance(21930, buf, breakout="bullish")
+    assert res.status == "YELLOW"
+    assert "trend-mode" not in res.detail
+
+
+def test_score_vwap_distance_trend_mode_overextended(make_candle):
+    buf = deque([make_candle(22000, vwap=22000)], maxlen=15)
+    # Even trend-mode has a ceiling: 0.91% beyond VWAP → RED exhaustion risk.
+    res = score_vwap_distance(22200, buf, breakout="bullish")
+    assert res.status == "RED"
+
+
+def test_score_vwap_distance_no_breakout_unchanged(make_candle):
+    buf = deque([make_candle(22000, vwap=22000)], maxlen=15)
+    # Without breakout context the original strict behavior is untouched.
+    res = score_vwap_distance(22100, buf, breakout=None)
+    assert res.status == "RED"
+    assert "trend-mode" not in res.detail

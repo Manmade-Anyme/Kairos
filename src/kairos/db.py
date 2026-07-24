@@ -4,7 +4,7 @@ This is the shared state bridge between Python and Discord Orchestrator.
 No raw market data is stored here — only scores and session config.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -265,6 +265,37 @@ class SupabaseDB:
         except Exception as e:
             # Log but don't raise — scoring continues even if DB write fails
             logger.error(f"Failed to write environment_log (scoring continues): {e}")
+
+    async def fetch_environment_log(self, days: int = 30, page_size: int = 1000) -> list[dict]:
+        """
+        Read historical scored cycles for offline analysis (execution/score_audit.py).
+
+        Paginates past PostgREST's per-request row cap (Supabase default: 1000 rows)
+        and propagates fetch errors to the caller — an audit must fail loudly rather
+        than report on silently truncated or missing history.
+
+        :param days: How many days back to fetch (capped by the table's retention window).
+        :param page_size: Rows per request; must not exceed the PostgREST max-rows setting.
+        :return: List of environment_log rows as dicts, oldest first.
+        """
+        self._check_client()
+        since = datetime.now(IST) - timedelta(days=days)
+        rows: list[dict] = []
+        offset = 0
+        while True:
+            result = (
+                await self._client.table("environment_log")
+                .select("*")
+                .gte("timestamp", since.isoformat())
+                .order("timestamp", desc=False)
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
+            batch = result.data or []
+            rows.extend(batch)
+            if len(batch) < page_size:
+                return rows
+            offset += page_size
 
     async def get_previous_status(self, symbol: str) -> Optional[str]:
         """

@@ -5,7 +5,7 @@ Tests cover:
   1. Vega trap fires correctly (3 tests)
   2. NDE contradiction fires correctly (3 tests)
   3. GEX pin caps score (2 tests)
-  4. All conditions required for green (4 tests)
+  4. RULE D green gate — phase + NDE conviction, ADR-025 (5 tests)
   5. Priority ordering B > C > A (2 tests)
   6. Warmup handling (1 test)
 """
@@ -180,10 +180,11 @@ class TestGEXPin:
 # ═════════════════════════════════════════════════════════════════════════════
 
 class TestFullGreen:
-    """All conditions aligned → score=1 (Rule D)."""
+    """RULE D (ADR-025): directional phase + NDE conviction → score=1.
+    GEX only vetoes as a pin; PCR is descriptive context, not a gate."""
 
     def test_bearish_full_conviction(self, make_cluster, make_candle):
-        """GEX trend + NDE confirms + PCR bearish → score=1."""
+        """Bearish phase + NDE confirms (GEX trending, PCR bearish) → score=1."""
         cluster, buf = _cluster(
             make_cluster, make_candle,
             price_change=-10.0,              # bearish (Short Buildup with OI up)
@@ -198,7 +199,7 @@ class TestFullGreen:
         assert "bearish" in oi.reason.lower()
 
     def test_bullish_full_conviction(self, make_cluster, make_candle):
-        """GEX trend + NDE confirms + PCR bullish → score=1."""
+        """Bullish phase + NDE confirms (GEX trending) → score=1."""
         cluster, buf = _cluster(
             make_cluster, make_candle,
             price_change=10.0,               # bullish (Long Buildup with OI up)
@@ -211,30 +212,65 @@ class TestFullGreen:
         assert cond.status == "GREEN"
         assert oi.score == 1
 
-    def test_missing_gex_trend_stays_red(self, make_cluster, make_candle):
-        """NDE confirms + PCR aligned but GEX neutral → score=0 (mixed signals)."""
+    def test_bearish_green_in_call_heavy_tape(self, make_cluster, make_candle):
+        """ADR-025 regression — the live 2026-07-22 regime: Short Buildup with
+        call-heavy chain (PCR < 1, GEX neutral/positive-lean). Pre-fix this was
+        unreachable because bearish PCR-confirm (call-heavy) and GEX-trend
+        (put-heavy) were mutually exclusive. Now: phase + NDE carry direction."""
         cluster, buf = _cluster(
             make_cluster, make_candle,
-            price_change=-10.0,
-            net_gex=0.0,                     # neutral (not trending)
-            net_delta_exposure=-500_000.0,
-            pcr=0.90,
+            price_change=-10.0,              # bearish
+            net_gex=0.0,                     # neutral — exactly what live tape showed
+            net_delta_exposure=-500_000.0,   # net short delta confirms the fall
+            pcr=0.90,                        # call-heavy tape (like live 0.73-0.96)
         )
         cond, oi = score_oi_flow(cluster, iv_change_rate=0.5, candle_buffer=buf)
-        assert cond.points == 0
-        assert "Mixed signals" in oi.reason
+        assert cond.points == 1
+        assert cond.status == "GREEN"
+        assert "GEX neutral" in oi.reason
 
-    def test_missing_pcr_stays_red(self, make_cluster, make_candle):
-        """GEX trend + NDE confirms but PCR balanced → score=0."""
+    def test_pcr_divergent_no_longer_blocks(self, make_cluster, make_candle):
+        """ADR-025: PCR is context, not a gate — divergent PCR is reported but
+        does not veto a phase-aligned NDE conviction."""
         cluster, buf = _cluster(
             make_cluster, make_candle,
             price_change=-10.0,
             net_gex=-2_000_000.0,
             net_delta_exposure=-500_000.0,
-            pcr=1.00,                        # balanced, doesn't confirm bearish
+            pcr=1.00,                        # balanced — old gate would have blocked
+        )
+        cond, oi = score_oi_flow(cluster, iv_change_rate=0.5, candle_buffer=buf)
+        assert cond.points == 1
+        assert "PCR divergent" in oi.reason
+
+    def test_pullback_phase_never_green(self, make_cluster, make_candle):
+        """Short Covering (price up on OI unwind) is exit flow, not fresh
+        conviction — RED even when NDE aligns with the direction (scoring
+        contract: pullback phases are never traded)."""
+        cluster, buf = _cluster(
+            make_cluster, make_candle,
+            price_change=10.0,               # price rising...
+            ce_oi=-6000, pe_oi=-6000,        # ...on OI unwind: SHORT_COVERING
+            net_delta_exposure=500_000.0,    # NDE would confirm the bullish side
+            pcr=1.10,
         )
         cond, oi = score_oi_flow(cluster, iv_change_rate=0.5, candle_buffer=buf)
         assert cond.points == 0
+        assert "Pullback" in oi.reason
+
+    def test_nde_neutral_stays_red(self, make_cluster, make_candle):
+        """Directional phase but NDE under the conviction bar → score=0."""
+        cluster, buf = _cluster(
+            make_cluster, make_candle,
+            price_change=-10.0,
+            net_gex=0.0,
+            net_delta_exposure=-100_000.0,   # |nde| = 5% of gross < 10% bar
+            pcr=0.90,
+        )
+        cond, oi = score_oi_flow(cluster, iv_change_rate=0.5, candle_buffer=buf)
+        assert cond.points == 0
+        assert oi.nde_state == "neutral"
+        assert "No directional conviction" in oi.reason
 
 
 # ═════════════════════════════════════════════════════════════════════════════

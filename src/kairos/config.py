@@ -130,15 +130,20 @@ class Settings(BaseSettings):
     # PCR above this = put writers defending = structurally bullish.
 
     # ── Condition 4: Gamma/Theta — DTE-scaled ────────────────────────────
+    # Ratio = gamma / (abs(theta) / spot). With real Dhan payloads this lands in
+    # the ~0.5–3.0 range (live sample: 1.99 at DTE=6), NOT the 0.0000xx range the
+    # original thresholds assumed — those made C4 unconditionally GREEN.
+    # Bars below are provisional (old tier proportions × observed scale); refine
+    # from measured distributions via execution/score_audit.py.
     # DTE >= 3 (lenient — early week, plenty of time)
-    gamma_theta_dte_high_green: float = 0.00008    # DTE≥3 lenient
-    gamma_theta_dte_high_yellow: float = 0.00004
+    gamma_theta_dte_high_green: float = 1.5        # DTE≥3 lenient
+    gamma_theta_dte_high_yellow: float = 0.75
     # DTE = 2 (standard)
-    gamma_theta_dte_mid_green: float = 0.00012     # DTE=2 standard
-    gamma_theta_dte_mid_yellow: float = 0.00006
+    gamma_theta_dte_mid_green: float = 2.25        # DTE=2 standard
+    gamma_theta_dte_mid_yellow: float = 1.10
     # DTE = 1 (strict — expiry day, theta ruthless)
-    gamma_theta_dte_low_green: float = 0.00020     # DTE=1 strict — expiry day
-    gamma_theta_dte_low_yellow: float = 0.00008
+    gamma_theta_dte_low_green: float = 3.75        # DTE=1 strict — expiry day
+    gamma_theta_dte_low_yellow: float = 1.50
 
     # ── Condition 5: PDH/PDL Breakout ─────────────────────────────────────
     pdhl_near_band_pct: float = 0.10   # % within PDH/PDL = "near breakout"
@@ -151,6 +156,11 @@ class Settings(BaseSettings):
     # ── Condition 7: VWAP Distance ───────────────────────────────────────
     vwap_distance_green: float = 0.20    # % from VWAP
     vwap_distance_yellow: float = 0.40
+    # Trend-mode bands (ADR-024): applied when a PDH/PDL breakout is active AND
+    # price is riding the breakout side of VWAP. Extension from the mean is
+    # expected in a genuine trend; only flag real over-extension.
+    vwap_trend_green: float = 0.50
+    vwap_trend_yellow: float = 0.75
 
     # ── Scoring thresholds ───────────────────────────────────────────────
     # Total max score = 8 (IV=2, all others=1 each)

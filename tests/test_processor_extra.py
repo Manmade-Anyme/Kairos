@@ -167,18 +167,19 @@ def test_score_oi_flow_unified_conviction(make_cluster, make_candle):
     assert "Unified bullish conviction" in res_oi.reason
 
 def test_score_gamma_theta_dte2(make_atm):
-    # dte=2: green > 0.000120, yellow > 0.000060
-    # YELLOW (between 60u and 120u)
-    atm_yellow = make_atm(20000, ce_gamma=0.00000009, ce_theta=-20.0) # ratio = 0.00009
+    # dte=2 (ADR-024 recalibrated bars): green > 2.25, yellow > 1.10
+    # theta_norm = 20 / 20000 = 0.001
+    # YELLOW (between 1.10 and 2.25)
+    atm_yellow = make_atm(20000, ce_gamma=0.0015, ce_theta=-20.0) # ratio = 1.5
     assert score_gamma_theta(atm_yellow, 2).status == "YELLOW"
-    
+
     # GREEN
-    atm_green = make_atm(20000, ce_gamma=0.00000015, ce_theta=-20.0) # ratio = 0.00015
+    atm_green = make_atm(20000, ce_gamma=0.003, ce_theta=-20.0) # ratio = 3.0
     assert score_gamma_theta(atm_green, 2).status == "GREEN"
 
 def test_score_gamma_theta_low_dte_yellow(make_atm):
-    # dte=0 (low): green > 0.00020, yellow > 0.00008
-    atm = make_atm(20000, ce_gamma=0.0000001, ce_theta=-20.0) # ratio = 0.00010 (YELLOW)
+    # dte=0 (low, ADR-024 recalibrated bars): green > 3.75, yellow > 1.50
+    atm = make_atm(20000, ce_gamma=0.002, ce_theta=-20.0) # ratio = 2.0 (YELLOW)
     assert score_gamma_theta(atm, 0).status == "YELLOW"
 
 def test_score_gamma_theta_theta_zero(make_atm):

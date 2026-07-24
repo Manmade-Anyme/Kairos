@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **8/8 Score Ceiling (ADR-024)**: Audit found a perfect score was structurally unreachable —
+  Condition 7's strict VWAP bands contradicted the trend conditions (C2/C5/C6), capping any
+  genuine trend day at 7/8, while Condition 4's thresholds were ~4–5 orders of magnitude below
+  real Dhan-scale ratios, making it an unconditional free point.
+  - `score_vwap_distance` is now **trend-aware**: during a confirmed PDH/PDL breakout with price
+    on the breakout side of VWAP, widened bands apply (🟢 < 0.50%, 🟡 ≤ 0.75%); the strict
+    0.20/0.40 bands still govern range days and adverse VWAP crossings.
+  - Recalibrated `gamma_theta_*` thresholds to the measured ratio scale (DTE≥3: 🟢 > 1.5;
+    DTE=2: 🟢 > 2.25; DTE≤1: 🟢 > 3.75), restoring real discrimination to Condition 4.
+  - Unified the IV-cap GO→CAUTION downgrade: the scheduler's hysteresis HOLD path now delegates
+    to `engine._determine_status` instead of duplicating the logic inline.
+  - Documented the live `ce_oi_change` / `pe_oi_change` columns in `supabase_schema.sql`
+    (previously inserted by `db.py` but missing from the reference schema).
+
+### Added
+- **Score Distribution Audit CLI (`execution/score_audit.py`)**: pulls `environment_log` history
+  and reports the score histogram (empirical ceiling), per-condition status rates, pairwise green
+  co-occurrence (structural-conflict detection), and raw metric distributions parsed from
+  `summary_raw` — the calibration inputs mandated by ADR-024 ("thresholds come from measured
+  distributions, never assumed units"). Backed by `db.fetch_environment_log(days)`.
+- **Honest 8/8 regression test** (`test_evaluate_honest_8_of_8`): reaches a perfect score through
+  real scoring paths — OI Flow consensus earned by repeated `evaluate()` cycles on aligned chain
+  data rather than hand-fabricated buffer objects.
+
 ### Changed
 - **OI Flow Calculation Window**:
   - Migrated from a 15-minute anchored block window to a true **15-minute rolling window** to avoid zero-delta resets at block boundaries.

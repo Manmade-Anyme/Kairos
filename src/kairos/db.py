@@ -4,7 +4,7 @@ This is the shared state bridge between Python and Discord Orchestrator.
 No raw market data is stored here — only scores and session config.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -265,6 +265,28 @@ class SupabaseDB:
         except Exception as e:
             # Log but don't raise — scoring continues even if DB write fails
             logger.error(f"Failed to write environment_log (scoring continues): {e}")
+
+    async def fetch_environment_log(self, days: int = 30) -> list[dict]:
+        """
+        Read historical scored cycles for offline analysis (execution/score_audit.py).
+
+        :param days: How many days back to fetch (capped by the table's retention window).
+        :return: List of environment_log rows as dicts, oldest first. Empty on failure.
+        """
+        self._check_client()
+        try:
+            since = datetime.now(IST) - timedelta(days=days)
+            result = (
+                await self._client.table("environment_log")
+                .select("*")
+                .gte("timestamp", since.isoformat())
+                .order("timestamp", desc=False)
+                .execute()
+            )
+            return result.data or []
+        except Exception as e:
+            logger.error(f"Failed to fetch environment_log history: {e}")
+            return []
 
     async def get_previous_status(self, symbol: str) -> Optional[str]:
         """

@@ -493,7 +493,7 @@ def score_gamma_theta(atm: ATMStrikes, dte: int) -> ConditionResult:
     # expressed per point² (e.g. 0.00047). Dividing by spot_price converts theta to a
     # % basis, making both quantities dimensionally compatible for a meaningful ratio.
     theta_normalized = theta / atm.spot_price
-    ratio = round(gamma / theta_normalized, 6)  # 6 decimal places — values are in 0.0000xx range
+    ratio = round(gamma / theta_normalized, 6)  # real Dhan payloads land this in the ~0.5–3.0 range
 
     # Select thresholds based on DTE
     if dte >= 3:
@@ -624,17 +624,26 @@ def score_move_ratio(
 def score_vwap_distance(
     spot_price: float,
     candle_buffer: deque,
+    breakout: Optional[str] = None,
 ) -> ConditionResult:
     """
     Ensures the underlying index is not statistically over-extended from the session mean.
-    
+
     VWAP is computed incrementally by the DHAN fetcher since 09:15 IST.
     A distance percentage > 0.40% signifies mean-reversion risk, halting continuation entries.
-    
+
+    Trend-mode (ADR-024): when a PDH/PDL breakout is active and price is riding the
+    breakout side of VWAP, extension from the mean is expected trend behavior rather
+    than exhaustion, so widened bands apply. A crossing back through VWAP against the
+    breakout direction keeps the strict bands — that is the genuine reversal signal.
+
     :param spot_price: The live value of the underlying index.
     :type spot_price: float
     :param candle_buffer: Latest candles used purely to lift the most recent incremental VWAP.
     :type candle_buffer: collections.deque
+    :param breakout: Active PDH/PDL breakout direction — "bullish" (spot above PDH),
+                     "bearish" (spot below PDL), or None when inside the prior-day range.
+    :type breakout: Optional[str]
     :return: Evaluated extension risk mapping GREEN/YELLOW/RED. (Max points: 1)
     :rtype: ConditionResult
     """
@@ -649,11 +658,24 @@ def score_vwap_distance(
 
     distance_pct = abs(spot_price - vwap) / vwap * 100
     direction = "above" if spot_price > vwap else "below"
-    detail = f"{distance_pct:.2f}% {direction} VWAP {vwap:.0f}"
 
-    if distance_pct < settings.vwap_distance_green:
+    on_breakout_side = (
+        (breakout == "bullish" and spot_price >= vwap)
+        or (breakout == "bearish" and spot_price <= vwap)
+    )
+
+    if on_breakout_side:
+        green_thresh = settings.vwap_trend_green
+        yellow_thresh = settings.vwap_trend_yellow
+        detail = f"{distance_pct:.2f}% {direction} VWAP {vwap:.0f} (trend-mode)"
+    else:
+        green_thresh = settings.vwap_distance_green
+        yellow_thresh = settings.vwap_distance_yellow
+        detail = f"{distance_pct:.2f}% {direction} VWAP {vwap:.0f}"
+
+    if distance_pct < green_thresh:
         return _result("vwap_distance", "GREEN", 1, 1, f"{detail} — room to run")
-    elif distance_pct <= settings.vwap_distance_yellow:
+    elif distance_pct <= yellow_thresh:
         return _result("vwap_distance", "YELLOW", 0, 1, f"{detail} — mildly extended")
     else:
         return _result("vwap_distance", "RED", 0, 1, f"{detail} — extended, exhaustion risk")

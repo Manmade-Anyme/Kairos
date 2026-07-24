@@ -17,7 +17,7 @@ from loguru import logger
 
 from kairos.config import settings
 from kairos.db import db, load_dhan_credentials_from_supabase
-from kairos.engine import evaluate
+from kairos.engine import _determine_status, evaluate
 from kairos.fetcher import DhanAPIError, DhanAuthError, fetcher
 from kairos.models import PreviousDayLevels, SessionConfig
 from kairos.notifier import notifier
@@ -489,10 +489,12 @@ async def run_cycle() -> None:
         # Engine flagged RED this cycle — activate cap
         state.iv_cap_active = True
     elif state.iv_cap_active and (iv_condition and iv_condition.status != "GREEN"):
-        # Cap was previously active and IV hasn't recovered to GREEN yet — hold cap
+        # Cap was previously active and IV hasn't recovered to GREEN yet — hold cap.
+        # Reuse the engine's status mapping so the GO→CAUTION downgrade has a
+        # single implementation (this HOLD path is the only place it can bite:
+        # an engine-level RED IV scores 0/2, capping the total at 6 < GO).
         score.iv_capped = True
-        if score.status == "GO":
-            score.status = "CAUTION"
+        score.status = _determine_status(score.score, iv_capped=True)
     else:
         # Either cap was never active, or IV recovered to GREEN — release
         state.iv_cap_active = False

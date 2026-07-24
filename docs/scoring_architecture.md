@@ -74,9 +74,10 @@ The engine evaluates the following metrics in a strict hierarchy. If any high-pr
 * **Unit Normalization:** Dhan returns `theta` as an absolute ₹-per-day decay (e.g. `-29.3`), while `gamma` is expressed per point² (e.g. `0.00047`). These are on incompatible scales. Before computing the ratio, `theta` is normalized by the current spot price: `theta_normalized = theta / spot_price`. This converts theta to a per-point basis, matching gamma's scale.
 * **Ratio:** `gamma / theta_normalized` (rounded to 6 decimal places).
 * **Cold-Start Guard:** If `gamma == 0` (session open artifact), returns **YELLOW** status ("data not yet populated") instead of a false-negative RED.
-* **DTE >= 3 (Lenient):** 🟢 Ratio > 0.000080 | 🟡 (0 Pts) > 0.000040 | 🔴 Below
-* **DTE = 2 (Standard):** 🟢 Ratio > 0.000120 | 🟡 (0 Pts) > 0.000060 | 🔴 Below
-* **DTE = 1 (Expiry - Strict):** 🟢 Ratio > 0.000200 | 🟡 (0 Pts) > 0.000080 | 🔴 Below
+* **Measured Scale (ADR-024):** With real Dhan payloads the normalized ratio lands in the **~0.5–3.0** range (live sample: `1.99` at DTE=6) — not the `0.0000xx` range the original thresholds assumed, which had made this condition unconditionally GREEN. Bars below are provisional (original tier proportions at the measured scale) and are refined from `execution/score_audit.py` distributions.
+* **DTE >= 3 (Lenient):** 🟢 Ratio > 1.50 | 🟡 (0 Pts) > 0.75 | 🔴 Below
+* **DTE = 2 (Standard):** 🟢 Ratio > 2.25 | 🟡 (0 Pts) > 1.10 | 🔴 Below
+* **DTE = 1 (Expiry - Strict):** 🟢 Ratio > 3.75 | 🟡 (0 Pts) > 1.50 | 🔴 Below
 
 ### Condition 5: Previous Day High/Low (PDHL) Breakout
 **Weight:** 1 Point | **Time Parameter:** Previous Day Daily Candles
@@ -98,13 +99,20 @@ The engine evaluates the following metrics in a strict hierarchy. If any high-pr
 * **🔴 Red (0 Pts):** Ratio < 0.7 (Premium is entirely overvalued, theta sink).
 * **Warmup:** System fetches data silently 15 minutes prior to Session 2 start to fully populate the buffer.
 
-### Condition 7: VWAP Distance Expansion
+### Condition 7: VWAP Distance Expansion (Trend-Aware, ADR-024)
 **Weight:** 1 Point | **Time Parameter:** Current Session (Resets Daily)
-**Logic:** Moving too far from the session VWAP (Volume Weighted Average Price) implies technical over-extension and increases the probability of mean-reversion, discouraging fresh continuation entries.
-* **Data Source:** Latest incrementally calculated VWAP since 09:15 session start. Distance = `abs(Spot - VWAP) / VWAP * 100`.
+**Logic:** Moving too far from the session VWAP (Volume Weighted Average Price) implies technical over-extension and increases the probability of mean-reversion, discouraging fresh continuation entries. However, in a **confirmed PDH/PDL breakout**, extension from VWAP on the breakout side is *expected trend behavior* — historically the strict bands made this condition structurally contradict the trend conditions (C2/C5/C6), capping any genuine trend day at 7/8.
+* **Data Source:** Latest incrementally calculated VWAP since 09:15 session start. Distance = `abs(Spot - VWAP) / VWAP * 100`. The active breakout direction is derived from the same PDH/PDL levels used by Condition 5.
+
+**Range Regime (no breakout, or price crossed back through VWAP against the breakout):**
 * **🟢 Green (1 Pt):** Distance < 0.20%. Trending close to average value area. Room to run.
 * **🟡 Yellow (0 Pts):** Distance 0.20% - 0.40%. Mildly extended.
 * **🔴 Red (0 Pts):** Distance > 0.40%. Too extended. High risk of exhaustion.
+
+**Trend Regime (breakout active AND price on the breakout side of VWAP):**
+* **🟢 Green (1 Pt):** Distance < 0.50%. Healthy trend riding away from the mean.
+* **🟡 Yellow (0 Pts):** Distance 0.50% - 0.75%. Stretched trend.
+* **🔴 Red (0 Pts):** Distance > 0.75%. Parabolic over-extension, exhaustion risk.
 
 ---
 

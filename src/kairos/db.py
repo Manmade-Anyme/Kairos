@@ -29,6 +29,7 @@ class SupabaseDB:
     """
 
     def __init__(self) -> None:
+        """Create the wrapper in an unstarted state; call start() before use."""
         self._client: Optional[AsyncClient] = None
 
     async def start(self) -> None:
@@ -45,6 +46,11 @@ class SupabaseDB:
         logger.info("SupabaseDB: client closed")
 
     def _check_client(self) -> None:
+        """
+        Guard every query against use before start().
+
+        :raises RuntimeError: if the async client has not been initialised.
+        """
         if self._client is None:
             raise RuntimeError("SupabaseDB not started — call await db.start() first")
 
@@ -235,6 +241,7 @@ class SupabaseDB:
 
         # Build flat condition fields from conditions list
         def get_status(name: str) -> str:
+            """Flatten one condition's status into its column, defaulting to YELLOW."""
             c = score.get_condition(name)
             return c.status if c else "YELLOW"
 

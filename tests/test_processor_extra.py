@@ -1,3 +1,9 @@
+"""
+Branch-coverage tests for processor.py.
+
+Complements test_processor.py by exercising the DTE tiers, warmup guards, and
+every early-return veto inside the OI Flow scoring engine.
+"""
 from collections import deque
 import pytest
 from kairos.processor import (
@@ -13,6 +19,7 @@ from kairos.processor import (
 from kairos.models import PreviousDayLevels, TrendPhase
 
 def test_score_iv_change_dte_high():
+    """DTE>=3 uses the strictest expansion bars for its GREEN/YELLOW split."""
     # dte >= 3: green > 0.5, yellow > 0.0
     buf = deque([0.15] * 15, maxlen=20)
     # GREEN
@@ -24,6 +31,7 @@ def test_score_iv_change_dte_high():
     assert score_iv_change(buf, dte=3).status == "YELLOW"
 
 def test_score_iv_change_dte2():
+    """DTE=2 uses the mid-week expansion bars."""
     # dte=2: green > 0.30, yellow > -0.20
     buf = deque([0.15] * 15, maxlen=20)
     
@@ -42,6 +50,7 @@ def test_score_iv_change_dte2():
     assert score_iv_change(buf, dte=2).status == "RED"
 
 def test_score_momentum_extra(make_candle):
+    """Momentum reports warmup below the candle window and still scores once the window fills."""
     # Insufficient candles for window (5)
     assert score_momentum(deque([make_candle(100.0)] * 3)).status == "YELLOW"
 
@@ -61,6 +70,7 @@ def test_score_momentum_extra(make_candle):
     assert res.status == "YELLOW"
 
 def test_classify_phase_extra():
+    """Price direction against OI direction maps onto the four buildup/unwind phases."""
     # Short Covering: Price ↑, OI ↓
     assert _classify_phase(-5001, -5001, 10.0) == TrendPhase.SHORT_COVERING # OI change = -10002 < -8000
     
@@ -74,12 +84,14 @@ def test_classify_phase_extra():
     assert _classify_phase(100, 100, 10.0) == TrendPhase.NEUTRAL
 
 def test_score_oi_flow_warmup(make_cluster):
+    """OI Flow reports warmup until the candle buffer covers the lookback."""
     # Insufficient candles for oi_lookback_cycles (6)
     res_cond, res_oi = score_oi_flow(make_cluster(22000), 0.0, deque())
     assert res_cond.status == "YELLOW"
     assert res_oi.reason == "Warming up"
 
 def test_score_oi_flow_vega_trap(make_cluster, make_candle):
+    """High ATM vega into contracting IV trips the vega trap veto."""
     cluster = make_cluster(22000, ce_oi_change=10000, pe_oi_change=10000)
     cluster.price_change = 10.0 # Long buildup
     cluster.atm_vega_exposure = 30_000_000.0 # > 25M
@@ -90,6 +102,7 @@ def test_score_oi_flow_vega_trap(make_cluster, make_candle):
     assert "Vega trap" in res_oi.reason
 
 def test_score_oi_flow_nde_contradicts(make_cluster, make_candle):
+    """Net delta opposing the phase trips the NDE contradiction veto."""
     cluster = make_cluster(22000, ce_oi_change=10000, pe_oi_change=10000)
     cluster.price_change = 10.0 # Long buildup
     cluster.net_delta_exposure = -500_000.0 # Bearsih NDE contradicts Bullish phase
@@ -99,6 +112,7 @@ def test_score_oi_flow_nde_contradicts(make_cluster, make_candle):
     assert "NDE contradicts phase" in res_oi.reason
 
 def test_score_oi_flow_fallback(make_cluster, make_candle):
+    """A directional phase with NDE under the bar yields no conviction (PCR no longer gates, per ADR-025)."""
     # Fallback: directional phase but NDE neutral (default 0.0) → no conviction (ADR-025).
     # PCR no longer gates, so the reason names the NDE bar, not "mixed signals".
     cluster = make_cluster(22000, ce_oi_change=10000, pe_oi_change=10000)
@@ -110,12 +124,14 @@ def test_score_oi_flow_fallback(make_cluster, make_candle):
     assert "No directional conviction" in res_oi.reason
 
 def test_score_gamma_theta_exact_red(make_atm):
+    """A gamma/theta ratio below the yellow bar scores RED."""
     # ratio <= yellow_thresh (line 420)
     # DTE=3: yellow_thresh = 0.00004
     atm = make_atm(20000, ce_gamma=0.00000001, ce_theta=-20.0) # ratio = 0.00001 < 40u
     assert score_gamma_theta(atm, 3).status == "RED"
 
 def test_score_move_ratio_exact_red(make_candle, make_atm):
+    """Realized range far below the implied move scores RED."""
     # score_move_ratio RED (line 518)
     atm = make_atm(20000, ce_ltp=100, pe_ltp=100) # implied ~ 0.2%
     buf = deque([make_candle(20000)] * 15, maxlen=15)
@@ -124,11 +140,13 @@ def test_score_move_ratio_exact_red(make_candle, make_atm):
     assert score_move_ratio(atm, buf, dte=1).status == "RED"
 
 def test_score_vwap_distance_exact_yellow(make_candle):
+    """A VWAP distance inside the yellow band scores YELLOW."""
     buf = deque([make_candle(20000, vwap=20000)], maxlen=1)
     # distance = 0.3% (between 0.2 and 0.4)
     assert score_vwap_distance(20060, buf).status == "YELLOW" # Line 558
 
 def test_score_oi_flow_gex_pin(make_cluster, make_candle):
+    """Net GEX above the pin threshold trips the dealer-pin veto."""
     cluster = make_cluster(22000, ce_oi_change=10000, pe_oi_change=10000)
     cluster.price_change = 10.0 # Long buildup
     cluster.net_gex = 2_000_000.0 # > 1.3M threshold
@@ -138,6 +156,7 @@ def test_score_oi_flow_gex_pin(make_cluster, make_candle):
     assert "GEX pin active" in res_oi.reason
 
 def test_score_oi_flow_neutral_phase(make_cluster, make_candle):
+    """OI change below the phase threshold classifies as neutral and scores 0."""
     cluster = make_cluster(22000, ce_oi_change=100, pe_oi_change=100) # Neutral
     buf = deque([make_candle(22000)] * 10, maxlen=15)
     res_cond, res_oi = score_oi_flow(cluster, 0.5, buf)
@@ -145,6 +164,7 @@ def test_score_oi_flow_neutral_phase(make_cluster, make_candle):
     assert "Neutral phase" in res_oi.reason
 
 def test_score_oi_flow_theta_dominant(make_cluster, make_candle):
+    """Theta burn above the dominance bar vetoes unless NDE confirms."""
     # Theta dominant (burn > 500M) and NDE not confirming
     cluster = make_cluster(22000, ce_oi_change=10000, pe_oi_change=10000)
     cluster.theta_burn_rate = 600_000_000.0 # > 500M
@@ -157,6 +177,7 @@ def test_score_oi_flow_theta_dominant(make_cluster, make_candle):
     assert "Theta dominant" in res_oi.reason
 
 def test_score_oi_flow_unified_conviction(make_cluster, make_candle):
+    """A bullish buildup with confirming NDE scores GREEN, reporting GEX and PCR as context."""
     cluster = make_cluster(22000, ce_oi_change=10000, pe_oi_change=10000)
     cluster.price_change = 10.0 # Bullish
     cluster.net_gex = -2_000_000.0 # GEX trend ( Dealers short gamma )
@@ -171,6 +192,7 @@ def test_score_oi_flow_unified_conviction(make_cluster, make_candle):
     assert "PCR aligned" in res_oi.reason
 
 def test_score_gamma_theta_dte2(make_atm):
+    """DTE=2 gamma/theta tiers split GREEN from YELLOW at the recalibrated bars (ADR-024)."""
     # dte=2 (ADR-024 recalibrated bars): green > 2.25, yellow > 1.10
     # theta_norm = 20 / 20000 = 0.001
     # YELLOW (between 1.10 and 2.25)
@@ -182,17 +204,20 @@ def test_score_gamma_theta_dte2(make_atm):
     assert score_gamma_theta(atm_green, 2).status == "GREEN"
 
 def test_score_gamma_theta_low_dte_yellow(make_atm):
+    """Expiry-day gamma/theta tiers are strictest, leaving a mid-range ratio at YELLOW."""
     # dte=0 (low, ADR-024 recalibrated bars): green > 3.75, yellow > 1.50
     atm = make_atm(20000, ce_gamma=0.002, ce_theta=-20.0) # ratio = 2.0 (YELLOW)
     assert score_gamma_theta(atm, 0).status == "YELLOW"
 
 def test_score_gamma_theta_theta_zero(make_atm):
+    """A theta of zero reports YELLOW rather than dividing by zero."""
     atm = make_atm(22000, ce_theta=0.0)
     res = score_gamma_theta(atm, 3)
     assert res.status == "YELLOW"
     assert "Theta = 0" in res.detail
 
 def test_score_pdhl_breakout_extra(mock_now, mock_date):
+    """Breakouts below PDL score GREEN and the near-band reports YELLOW."""
     prev = PreviousDayLevels(symbol="NIFTY", trade_date=mock_date, prev_day_high=22000, prev_day_low=21800, fetched_at=mock_now)
     
     # Below PDL
@@ -205,6 +230,7 @@ def test_score_pdhl_breakout_extra(mock_now, mock_date):
     assert score_pdhl_breakout(21810, prev).status == "YELLOW"
 
 def test_score_move_ratio_extra(make_candle, make_atm):
+    """Move ratio reports warmup on a short buffer and handles a zero-priced straddle."""
     atm = make_atm(22000, ce_ltp=100, pe_ltp=100)
     
     # Warmup
@@ -226,6 +252,7 @@ def test_score_move_ratio_extra(make_candle, make_atm):
     assert score_move_ratio(atm_y, buf_y, dte=1).status == "YELLOW"
 
 def test_score_momentum_no_vol_avg(make_candle):
+    """Volume averaging falls back to the available candles when shorter than the lookback."""
     # len(all_candles) >= 20 is False, but len(buf) >= 5 is True
     buf = deque(maxlen=20)
     for i in range(10):
@@ -236,6 +263,7 @@ def test_score_momentum_no_vol_avg(make_candle):
     assert score_momentum(buf).status == "YELLOW"
 
 def test_score_oi_flow_nde_states(make_cluster, make_candle):
+    """NDE resolves to confirms/contradicts/neutral according to sign and phase."""
     buf = deque([make_candle(22000)] * 10, maxlen=15)
     
     # NDE Confirms (Bearish)
@@ -251,6 +279,7 @@ def test_score_oi_flow_nde_states(make_cluster, make_candle):
     assert res_oi.nde_state == "contradicts" # Line 257 hit
 
 def test_score_oi_flow_nde_states_green(make_cluster, make_candle):
+    """A bullish phase with confirming NDE reaches the GREEN scoring path."""
     # NDE Confirms (Bullish) and reach GREEN
     cluster_bull = make_cluster(22000, ce_oi_change=10000, pe_oi_change=10000)
     cluster_bull.price_change = 10.0 # Bullish
@@ -263,6 +292,7 @@ def test_score_oi_flow_nde_states_green(make_cluster, make_candle):
     assert res_cond.points == 1
 
 def test_score_vwap_distance_cautions():
+    """VWAP scoring reports warmup for an empty buffer or an uncalculated VWAP."""
     # not candle_buffer
     assert score_vwap_distance(22000, deque()).status == "YELLOW" # Line 543
     

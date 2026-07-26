@@ -332,6 +332,7 @@ class TestConsensusFilter:
     """Consensus voting filter tests."""
 
     def test_empty_buffer_returns_warmup(self):
+        """An empty consensus buffer reports warmup rather than a scored verdict."""
         buf = deque(maxlen=8)
         cond, oi = consolidate_oi_flow(buf)
         assert cond.status == "YELLOW"
@@ -339,6 +340,7 @@ class TestConsensusFilter:
         assert oi.score == 0
 
     def test_green_consensus_met(self):
+        """Five green cycles out of eight meet the consensus threshold and score 1."""
         buf = deque(maxlen=8)
         # 5 green, 3 red
         for _ in range(3):
@@ -354,6 +356,7 @@ class TestConsensusFilter:
         assert "Consensus 5/8" in cond.detail
 
     def test_green_consensus_not_met(self):
+        """Four green cycles fall short of the 5/8 threshold and stay RED."""
         buf = deque(maxlen=8)
         # 4 green, 4 red
         for _ in range(4):
@@ -368,6 +371,7 @@ class TestConsensusFilter:
         assert "consensus not met" in cond.detail
 
     def test_vega_trap_override(self):
+        """Three vega-trap cycles force RED even when the green count would otherwise pass."""
         buf = deque(maxlen=8)
         # 5 green, but 3 of the red/green cycles have vega trap
         for _ in range(5):
@@ -385,6 +389,7 @@ class TestConsensusFilter:
         assert "Vega trap active (3/8 cycles)" in cond.detail
 
     def test_gex_pin_override(self):
+        """Three GEX-pin cycles force RED even when the green count would otherwise pass."""
         buf = deque(maxlen=8)
         # 3 gex pins
         for _ in range(5):
@@ -399,6 +404,7 @@ class TestConsensusFilter:
         assert "GEX pin active (3/8 cycles)" in cond.detail
 
     def test_mode_phase_wins(self):
+        """The consolidated phase is the buffer's most frequent one, breaking ties toward the most recent."""
         buf = deque(maxlen=8)
         # 3 Long Buildup, 2 Short Buildup, 3 Neutral
         # To resolve tie, check unique_phases reversed (most recent first wins)

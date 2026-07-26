@@ -1,8 +1,12 @@
+"""
+Tests for engine orchestration: ATM discovery, score aggregation, and the IV cap.
+"""
 from collections import deque
 from kairos.engine import find_atm, evaluate
 from kairos.models import PreviousDayLevels, SessionConfig
 
 def test_find_atm_exact(make_option_row):
+    """ATM resolves to the strike nearest spot and returns both its CE and PE rows."""
     chain = [
         make_option_row(21950, "CE"), make_option_row(21950, "PE"),
         make_option_row(22000, "CE"), make_option_row(22000, "PE"),
@@ -14,6 +18,7 @@ def test_find_atm_exact(make_option_row):
     assert atm.pe.strike == 22000
 
 def test_evaluate_iv_cap(make_candle, make_option_row, mock_now, mock_date):
+    """A contracting IV reading sets iv_capped and holds the broadcast status at CAUTION."""
     chain = [
         make_option_row(22000, "CE", iv=0.10, gamma=0.3, theta=-0.5, oi_change=1000, ltp=150.0),
         make_option_row(22000, "PE", iv=0.10, gamma=0.3, theta=-0.5, oi_change=-500, ltp=150.0)
@@ -39,6 +44,7 @@ def test_evaluate_iv_cap(make_candle, make_option_row, mock_now, mock_date):
     assert score.status == "CAUTION"
 
 def test_evaluate_go_no_cap(make_candle, make_option_row, mock_now, mock_date):
+    """Expanding IV leaves the cap clear, so a high-scoring cycle reaches GO."""
     chain = [
         make_option_row(22000, "CE", iv=0.10, gamma=0.3, theta=-0.5, oi_change=1000, ltp=150.0),
         make_option_row(22000, "PE", iv=0.10, gamma=0.3, theta=-0.5, oi_change=-500, ltp=150.0)

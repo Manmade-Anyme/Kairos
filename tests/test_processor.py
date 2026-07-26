@@ -1,3 +1,10 @@
+"""
+Tests for the individual scoring conditions in processor.py.
+
+Each condition is exercised through its public scoring function against the
+thresholds configured in kairos.config, covering the GREEN/YELLOW/RED bands
+and the warmup guards.
+"""
 from collections import deque
 from kairos.processor import (
     score_iv_change,
@@ -11,12 +18,14 @@ from kairos.processor import (
 from kairos.models import PreviousDayLevels
 
 def test_score_iv_change_warmup():
+    """An IV buffer shorter than the lookback reports warmup instead of scoring."""
     buf = deque([0.15] * 10, maxlen=20)
     res = score_iv_change(buf)
     assert res.status == "YELLOW"
     assert "Warming up" in res.detail
 
 def test_score_iv_change_green():
+    """Expansion beyond the GREEN bar earns the full 2 points."""
     buf = deque([0.15] * 15, maxlen=20)
     buf.append(1.8) # 1.8 - 0.15 = 1.65 > 1.5
     res = score_iv_change(buf)
@@ -24,6 +33,7 @@ def test_score_iv_change_green():
     assert res.points == 2
 
 def test_score_iv_change_yellow():
+    """Mild expansion inside the YELLOW band earns partial credit (1 point)."""
     buf = deque([0.15] * 15, maxlen=20)
     buf.append(0.25) # 0.25 - 0.15 = 0.10 (between -0.5 and +0.2)
     res = score_iv_change(buf, dte=0)
@@ -31,6 +41,7 @@ def test_score_iv_change_yellow():
     assert res.points == 1
 
 def test_score_iv_change_red():
+    """Contraction past the RED bar scores 0 and is what arms the IV cap."""
     buf = deque([0.15] * 15, maxlen=20)
     buf.append(-0.45) # -0.45 - 0.15 = -0.60 < -0.5
     res = score_iv_change(buf, dte=0)
@@ -38,6 +49,7 @@ def test_score_iv_change_red():
     assert res.points == 0
 
 def test_score_momentum_green(make_candle):
+    """Range, volume spike, and directional consistency together earn the momentum point."""
     buf = deque(maxlen=20)
     for _ in range(15):
         buf.append(make_candle(100.0, volume=100))
@@ -53,6 +65,7 @@ def test_score_momentum_green(make_candle):
     assert res.points == 1
 
 def test_score_momentum_red_choppy(make_candle):
+    """A flat, choppy tape fails the range and trend checks and scores RED."""
     buf = deque(maxlen=20)
     for _ in range(20):
         # All completely flat/choppy
@@ -66,6 +79,7 @@ def test_score_momentum_red_choppy(make_candle):
 
 
 def test_score_gamma_theta_dte3(make_atm):
+    """A realistic Dhan-scale gamma edge clears the lenient DTE>=3 bar but only reaches YELLOW on expiry day."""
     # Realistic Dhan-scale Greeks:
     # gamma = 0.00132, theta = -15.1539, spot = 22000
     # theta_normalized = 15.1539 / 22000 = 0.0006888...
@@ -81,6 +95,7 @@ def test_score_gamma_theta_dte3(make_atm):
 
 
 def test_score_gamma_theta_theta_dominant_red(make_atm):
+    """Weak gamma against heavy decay scores RED — the pre-ADR-024 thresholds wrongly passed this."""
     # Weak gamma vs heavy decay: ratio = 0.0002 / (15.1539/22000) = 0.29
     # falls below every yellow bar → RED. The pre-ADR-024 thresholds (0.00008)
     # would have wrongly scored this as GREEN.
@@ -123,6 +138,7 @@ def test_score_gamma_theta_normalization_verification(make_atm):
     assert ratio2 == 2.0
 
 def test_score_gamma_theta_gamma_zero(make_atm):
+    """A session-open gamma of zero reports YELLOW rather than a false-negative RED."""
     # Session open cold-start: gamma=0 should return YELLOW not RED
     atm = make_atm(22000, ce_gamma=0.0, ce_theta=-15.1539)
     res = score_gamma_theta(atm, 3)
@@ -130,16 +146,19 @@ def test_score_gamma_theta_gamma_zero(make_atm):
     assert "Gamma = 0" in res.detail
 
 def test_score_pdhl_breakout_green(mock_now, mock_date):
+    """Price beyond the previous day's high is a clean breakout."""
     prev = PreviousDayLevels(symbol="NIFTY", trade_date=mock_date, prev_day_high=22000, prev_day_low=21800, fetched_at=mock_now)
     res = score_pdhl_breakout(22100, prev)
     assert res.status == "GREEN"
 
 def test_score_pdhl_breakout_red(mock_now, mock_date):
+    """Price trapped inside the previous day's range scores RED."""
     prev = PreviousDayLevels(symbol="NIFTY", trade_date=mock_date, prev_day_high=22000, prev_day_low=21800, fetched_at=mock_now)
     res = score_pdhl_breakout(21900, prev)
     assert res.status == "RED"
 
 def test_score_move_ratio_green(make_candle, make_atm):
+    """Realized range exceeding the time-scaled implied move earns the point."""
     # DTE=6: scaling = sqrt(15 / (6*375)) = sqrt(15/2250) ≈ 0.0816
     # straddle = 200, spot = 22000 → raw implied = 0.909%
     # scaled implied = 0.909% * 0.0816 ≈ 0.074%
@@ -152,12 +171,14 @@ def test_score_move_ratio_green(make_candle, make_atm):
     assert res.status == "GREEN"
 
 def test_score_vwap_distance_green(make_candle):
+    """Price hugging VWAP inside the range band scores GREEN."""
     buf = deque([make_candle(22000, vwap=22000)], maxlen=15)
 
     res = score_vwap_distance(22010, buf) # 10 pts distance (~0.04% < 0.2%)
     assert res.status == "GREEN"
 
 def test_score_vwap_distance_red(make_candle):
+    """Far extension from VWAP without a breakout scores RED."""
     buf = deque([make_candle(22000, vwap=22000)], maxlen=15)
 
     res = score_vwap_distance(22500, buf) # 500 pts distance (> 2.0%)
@@ -165,6 +186,7 @@ def test_score_vwap_distance_red(make_candle):
 
 
 def test_score_vwap_distance_trend_mode_green(make_candle):
+    """ADR-024: a bullish breakout riding above VWAP scores GREEN under the widened trend bands."""
     buf = deque([make_candle(22000, vwap=22000)], maxlen=15)
     # 0.45% above VWAP: RED under range bands, but GREEN in a bullish breakout
     # riding the correct side of VWAP (ADR-024 trend-mode).
@@ -174,6 +196,7 @@ def test_score_vwap_distance_trend_mode_green(make_candle):
 
 
 def test_score_vwap_distance_trend_mode_bearish(make_candle):
+    """ADR-024: a bearish breakdown riding below VWAP scores GREEN under the widened trend bands."""
     buf = deque([make_candle(22000, vwap=22000)], maxlen=15)
     # 0.41% below VWAP during a bearish breakdown → trend-mode GREEN.
     res = score_vwap_distance(21910, buf, breakout="bearish")
@@ -182,6 +205,7 @@ def test_score_vwap_distance_trend_mode_bearish(make_candle):
 
 
 def test_score_vwap_distance_trend_mode_wrong_side(make_candle):
+    """ADR-024: after a breakout, an adverse crossing back through VWAP reverts to the strict bands."""
     buf = deque([make_candle(22000, vwap=22000)], maxlen=15)
     # Bullish breakout but price crossed back BELOW VWAP — the adverse crossing
     # keeps the strict mean-reversion bands (0.32% → YELLOW).
@@ -191,6 +215,7 @@ def test_score_vwap_distance_trend_mode_wrong_side(make_candle):
 
 
 def test_score_vwap_distance_trend_mode_overextended(make_candle):
+    """ADR-024: trend mode still has a ceiling — parabolic extension scores RED."""
     buf = deque([make_candle(22000, vwap=22000)], maxlen=15)
     # Even trend-mode has a ceiling: 0.91% beyond VWAP → RED exhaustion risk.
     res = score_vwap_distance(22200, buf, breakout="bullish")
@@ -198,6 +223,7 @@ def test_score_vwap_distance_trend_mode_overextended(make_candle):
 
 
 def test_score_vwap_distance_no_breakout_unchanged(make_candle):
+    """ADR-024: without breakout context the original strict behaviour is unchanged."""
     buf = deque([make_candle(22000, vwap=22000)], maxlen=15)
     # Without breakout context the original strict behavior is untouched.
     res = score_vwap_distance(22100, buf, breakout=None)

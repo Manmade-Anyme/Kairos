@@ -1,3 +1,9 @@
+"""
+Tests for the scheduler: startup checks, the scoring cycle, and heartbeats.
+
+All external singletons (db, fetcher, notifier) are patched, so these tests
+exercise orchestration and state transitions without any network or database.
+"""
 import pytest
 import sys
 from unittest.mock import MagicMock
@@ -16,6 +22,7 @@ from kairos.models import SessionConfig, OHLCVCandle, PreviousDayLevels, Environ
 
 @pytest.fixture
 def mock_dependencies(mocker):
+    """Patch the db, fetcher, and notifier singletons used inside scheduler."""
     # Mock all global service singletons accessed inside scheduler
     mocker.patch("kairos.scheduler.db")
     mocker.patch("kairos.scheduler.fetcher")
@@ -25,6 +32,7 @@ def mock_dependencies(mocker):
 
 @pytest.fixture
 def dummy_session():
+    """An ACTIVE NIFTY weekly session expiring today."""
     return SessionConfig(
         symbol="NIFTY",
         expiry=date.today(),
@@ -34,6 +42,7 @@ def dummy_session():
 
 @pytest.fixture
 def dummy_candle():
+    """A single one-minute candle used to seed the rolling buffers."""
     return OHLCVCandle(
         timestamp=datetime.now(),
         symbol="NIFTY",
@@ -48,6 +57,7 @@ def dummy_candle():
 
 @pytest.fixture
 def dummy_levels():
+    """Previous-day high/low levels for the PDH/PDL condition."""
     return PreviousDayLevels(
         symbol="NIFTY",
         trade_date=date(2026, 3, 25),
@@ -58,6 +68,7 @@ def dummy_levels():
 
 @pytest.fixture
 def dummy_score():
+    """A fully-scored 8/8 GO result used as the evaluate() stand-in."""
     return EnvironmentScore(
         timestamp=datetime.now(),
         symbol="NIFTY",
@@ -76,6 +87,7 @@ from unittest.mock import AsyncMock
 
 @pytest.mark.asyncio
 async def test_run_startup_checks(mock_dependencies, dummy_session, dummy_levels, mocker):
+    """Startup verifies both connections, loads levels, and announces the session."""
     import kairos.scheduler as sched
     
     # Setup happy path mock bounds
@@ -95,6 +107,7 @@ async def test_run_startup_checks(mock_dependencies, dummy_session, dummy_levels
 
 @pytest.mark.asyncio
 async def test_run_cycle(mock_dependencies, dummy_session, dummy_candle, dummy_levels, dummy_score, mocker):
+    """A full cycle fetches data, scores it, persists the row, and alerts on change."""
     import kairos.scheduler as sched
     sched.state.reset_buffers()
     sched.state.startup_done = True  # manually skip startup in basic cycle
@@ -128,6 +141,7 @@ async def test_run_cycle(mock_dependencies, dummy_session, dummy_candle, dummy_l
 
 @pytest.mark.asyncio
 async def test_run_heartbeat(mock_dependencies, dummy_session):
+    """Even with an active session the heartbeat stays silent (suppressed per ADR-006)."""
     import kairos.scheduler as sched
     sched.state.active_config = dummy_session
     sched.state.in_session = True
@@ -144,6 +158,7 @@ async def test_run_heartbeat(mock_dependencies, dummy_session):
 
 @pytest.mark.asyncio
 async def test_run_heartbeat_suppressed_when_stopped(mock_dependencies, dummy_session):
+    """A STOPPED session suppresses the heartbeat."""
     import kairos.scheduler as sched
     from kairos.models import SessionConfig
     import datetime
@@ -164,6 +179,7 @@ async def test_run_heartbeat_suppressed_when_stopped(mock_dependencies, dummy_se
 
 @pytest.mark.asyncio
 async def test_run_heartbeat_suppressed_when_no_session(mock_dependencies):
+    """No active session suppresses the heartbeat entirely."""
     import kairos.scheduler as sched
 
     sched.db.get_active_session = AsyncMock(return_value=None)
@@ -173,6 +189,7 @@ async def test_run_heartbeat_suppressed_when_no_session(mock_dependencies):
     sched.notifier.post_heartbeat.assert_not_called()
 
 def test_session_helpers():
+    """Session gate helpers resolve against the configured window boundaries."""
     from kairos.scheduler import is_active_session, get_session_name
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -182,6 +199,7 @@ def test_session_helpers():
 
 @pytest.mark.asyncio
 async def test_run_startup_checks_failure(mock_dependencies, dummy_session, mocker):
+    """A failed connectivity check raises a critical alert instead of starting."""
     import kairos.scheduler as sched
     sched.fetcher.test_connectivity = AsyncMock(return_value=False)
     sched.db.test_connectivity = AsyncMock(return_value=False)
@@ -194,6 +212,7 @@ async def test_run_startup_checks_failure(mock_dependencies, dummy_session, mock
 
 @pytest.mark.asyncio
 async def test_run_cycle_auth_error(mock_dependencies, dummy_session, mocker):
+    """A Dhan auth error is caught so the cycle aborts without crashing the engine."""
     import kairos.scheduler as sched
     from kairos.fetcher import DhanAuthError
     
@@ -214,6 +233,7 @@ async def test_run_cycle_auth_error(mock_dependencies, dummy_session, mocker):
 
 @pytest.mark.asyncio
 async def test_run_cycle_api_error(mock_dependencies, dummy_session, mocker):
+    """A Dhan API error is caught so the cycle aborts without crashing the engine."""
     import kairos.scheduler as sched
     from kairos.fetcher import DhanAPIError
     
@@ -351,6 +371,7 @@ async def test_run_cycle_first_alert_and_subsequent_suppression(mock_dependencie
 
     # Use a side effect to update previous_status correctly for subsequent calls
     def evaluate_mock(**kwargs):
+        """Return the seeded score while echoing back the caller's previous_status."""
         res = first_score.model_copy()
         res.previous_status = kwargs.get("previous_status")
         return res
@@ -487,6 +508,7 @@ async def test_run_cycle_session_transition_resets_state(mock_dependencies, dumm
     mocker.patch("kairos.scheduler.state.check_warmup_complete", return_value=True)
 
     def evaluate_side_effect(**kwargs):
+        """Return an AVOID score while echoing back the caller's previous_status."""
         res = dummy_score.model_copy()
         res.status = "AVOID"
         res.previous_status = kwargs.get("previous_status")

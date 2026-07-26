@@ -1,3 +1,8 @@
+"""
+Tests for the Dhan API client: lifecycle, authentication, retries, and parsing.
+
+HTTP traffic is intercepted with respx so no live Dhan endpoint is contacted.
+"""
 import pytest
 import respx
 import httpx
@@ -7,6 +12,7 @@ from kairos.config import settings
 
 @pytest.mark.asyncio
 async def test_fetcher_start_stop(monkeypatch):
+    """The shared HTTP client is created on start and closed on stop."""
     monkeypatch.setattr(settings, "dhan_client_id", "fake_client_id")
     monkeypatch.setattr(settings, "dhan_access_token", "fake_token")
     fetcher = DhanFetcher()
@@ -17,6 +23,7 @@ async def test_fetcher_start_stop(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_fetcher_uninitialized():
+    """Calling an endpoint before start() raises rather than issuing a request."""
     fetcher = DhanFetcher()
     with pytest.raises(RuntimeError):
         await fetcher.get_option_chain("NIFTY", date(2026, 3, 26))
@@ -24,6 +31,7 @@ async def test_fetcher_uninitialized():
 @pytest.mark.asyncio
 @respx.mock
 async def test_fetcher_auth_error(monkeypatch):
+    """A 401 response surfaces as a DhanAuthError."""
     respx.post(f"{settings.dhan_base_url}/optionchain").respond(status_code=401)
     fetcher = DhanFetcher()
     
@@ -40,6 +48,7 @@ async def test_fetcher_auth_error(monkeypatch):
 @pytest.mark.asyncio
 @respx.mock
 async def test_fetcher_success(monkeypatch):
+    """A well-formed option-chain response parses into OptionChainRow objects with Greeks intact."""
     monkeypatch.setattr(settings, "dhan_client_id", "fake_client_id")
     monkeypatch.setattr(settings, "dhan_access_token", "fake_token")
     mock_payload = {
@@ -103,6 +112,7 @@ async def test_fetcher_success(monkeypatch):
 @pytest.mark.asyncio
 @respx.mock
 async def test_fetcher_retry_exhaustion(monkeypatch):
+    """Repeated failures exhaust the retry budget and raise DhanAPIError."""
     # patch settings to prevent slow tests
     monkeypatch.setattr(settings, "api_max_retries", 2)
     monkeypatch.setattr(settings, "api_retry_delay_seconds", 0.0)
@@ -122,6 +132,7 @@ async def test_fetcher_retry_exhaustion(monkeypatch):
 @pytest.mark.asyncio
 @respx.mock
 async def test_fetcher_extra_endpoints(monkeypatch):
+    """The remaining endpoints (expiry list, historical candles, quotes) parse their payloads."""
     monkeypatch.setattr(settings, "dhan_client_id", "fake_client_id")
     monkeypatch.setattr(settings, "dhan_access_token", "fake_token")
     respx.post(f"{settings.dhan_base_url}/optionchain/expirylist").respond(status_code=200, json={"data": ["2026-03-26", "2026-04-02"]})

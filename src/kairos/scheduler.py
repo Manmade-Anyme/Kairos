@@ -33,6 +33,7 @@ class SessionState:
     """Mutable session state shared between the two scheduler jobs."""
 
     def __init__(self) -> None:
+        """Initialise empty rolling buffers and reset all per-session tracking flags."""
         # In-memory rolling buffers
         self.candle_buffer: deque = deque(maxlen=settings.candle_buffer_size)
         self.iv_buffer: deque = deque(maxlen=settings.iv_buffer_size)
@@ -152,6 +153,12 @@ def is_lunch_break() -> bool:
 
 
 def get_session_name() -> str:
+    """
+    Name the trading window the engine is currently monitoring.
+
+    :return: "Open (…)" during session 1, otherwise "Post-Lunch (…)", with the
+             configured start/end times rendered inline.
+    """
     now = datetime.now(IST)
     h, m = now.hour, now.minute
     if settings.session_1_start <= (h, m) <= settings.session_1_end:
@@ -643,6 +650,7 @@ async def main() -> None:
 
     # Graceful shutdown handler
     def handle_shutdown(sig, frame):
+        """Exit cleanly on SIGTERM/SIGINT so Fly.io can scale the machine to zero."""
         logger.info(f"Received signal {sig} — shutting down")
         sys.exit(0)
 

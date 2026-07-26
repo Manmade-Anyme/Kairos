@@ -106,6 +106,7 @@ def compute_greeks_aggregates(
         return {}
 
     def _weight(strike: int) -> float:
+        """Weight a strike by distance from ATM: 1.0 at ATM, 0.125 in the wings, 0 beyond."""
         distance = abs(strike - atm_strike) / strike_step
         if distance == 0:
             return 1.0
@@ -258,6 +259,11 @@ def build_strike_cluster(
     # Calculate Distance-Weighted Mean for the cluster (ADR-012 refinement)
     # Weights decay linearly from 1.0 (ATM) downwards to ~0.125 at ±7 strikes
     def get_weighted_sum(rows: list[OptionChainRow]) -> tuple[float, float]:
+        """
+        Accumulate distance-weighted OI change for one side of the cluster.
+
+        :return: (weighted OI-change sum, total weight applied) — divide to get the mean.
+        """
         total_weighted_oi = 0.0
         total_weight = 0.0
         for r in rows:

@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Docstring Coverage Gate (100%)**: documented every module, class, function, and fixture across
+  `src/`, `execution/`, and `tests/` — coverage rose from 44.7% to **100%**, clearing the 80%
+  review threshold.
+  - Production code gained docs for the `Settings` model, Pydantic field validators, client
+    lifecycle/guard methods, and the nested weighting helpers in `engine.py`.
+  - Test modules gained module-level summaries plus per-test descriptions stating the behaviour
+    each case pins, rather than restating the test name.
+  - `interrogate` is now a dev dependency with a `[tool.interrogate]` block in `pyproject.toml`
+    (`fail-under = 80`), so the threshold is enforceable locally via
+    `interrogate -v src execution tests` instead of living only in review tooling.
+  - Declared the previously missing `respx` dev dependency — `tests/test_fetcher.py` and
+    `tests/test_notifier.py` import it, so a clean `pip install -e ".[dev]"` could not run the
+    full suite without it.
+
 ### Fixed
 - **OI Flow Self-Contradictory Green Gate (ADR-025)**: Condition 3 required GEX="trend",
   NDE="confirms", and PCR alignment simultaneously — three correlated reads of the same call/put

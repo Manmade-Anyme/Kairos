@@ -1,3 +1,9 @@
+"""
+Tests for the Supabase bridge.
+
+The async client is replaced with a mock builder chain, so these tests verify
+query construction and row mapping without touching a live database.
+"""
 import pytest
 from unittest.mock import MagicMock, AsyncMock
 from datetime import date, datetime
@@ -6,6 +12,7 @@ from kairos.models import SessionConfig, AvailableExpiry, PreviousDayLevels, Env
 
 @pytest.fixture
 def mock_supabase(mocker):
+    """Patch acreate_client with a chainable mock whose terminal .execute() is awaitable."""
     # The client has sync chains (table, select, eq) that end in an async .execute()
     client = MagicMock()
     
@@ -33,6 +40,7 @@ def mock_supabase(mocker):
 
 @pytest.mark.asyncio
 async def test_db_start_stop(mock_supabase):
+    """The client is created on start and cleared on stop."""
     db = SupabaseDB()
     await db.start()
     assert db._client is not None
@@ -41,12 +49,14 @@ async def test_db_start_stop(mock_supabase):
 
 @pytest.mark.asyncio
 async def test_uninitialized_db():
+    """Querying before start() raises rather than dereferencing a missing client."""
     db = SupabaseDB()
     with pytest.raises(RuntimeError):
         await db.get_active_session()
 
 @pytest.mark.asyncio
 async def test_test_connectivity(mock_supabase):
+    """A successful probe query reports connectivity as healthy."""
     db = SupabaseDB()
     await db.start()
     
@@ -56,6 +66,7 @@ async def test_test_connectivity(mock_supabase):
     
 @pytest.mark.asyncio
 async def test_test_connectivity_failure(mock_supabase):
+    """A raising probe query reports unhealthy instead of propagating."""
     db = SupabaseDB()
     await db.start()
     mock_supabase._execute.side_effect = Exception("DB Down")
@@ -64,10 +75,12 @@ async def test_test_connectivity_failure(mock_supabase):
 
 @pytest.mark.asyncio
 async def test_get_active_session(mock_supabase):
+    """An ACTIVE row maps onto a SessionConfig."""
     db = SupabaseDB()
     await db.start()
     
     class FakeResult:
+        """Stub result carrying one ACTIVE session row."""
         data = [{"symbol": "NIFTY", "expiry": "2026-03-26", "expiry_type": "WEEKLY", "status": "ACTIVE"}]
         
     mock_supabase._execute.return_value = FakeResult()
@@ -79,6 +92,7 @@ async def test_get_active_session(mock_supabase):
 
 @pytest.mark.asyncio
 async def test_write_available_expiries(mock_supabase):
+    """Writing expiries clears the table then inserts, i.e. two round trips."""
     db = SupabaseDB()
     await db.start()
     
@@ -90,6 +104,7 @@ async def test_write_available_expiries(mock_supabase):
 
 @pytest.mark.asyncio
 async def test_write_previous_day_levels(mock_supabase):
+    """Previous-day levels are upserted in a single round trip."""
     db = SupabaseDB()
     await db.start()
     
@@ -99,10 +114,12 @@ async def test_write_previous_day_levels(mock_supabase):
 
 @pytest.mark.asyncio
 async def test_get_previous_status(mock_supabase):
+    """The most recent status is read back for state-change detection."""
     db = SupabaseDB()
     await db.start()
     
     class FakeResult:
+        """Stub result carrying the latest environment status."""
         data = [{"status": "GO"}]
         
     mock_supabase._execute.return_value = FakeResult()
@@ -112,10 +129,12 @@ async def test_get_previous_status(mock_supabase):
 
 @pytest.mark.asyncio
 async def test_db_extra_methods(mock_supabase):
+    """Expiry reads and environment-log writes round-trip through the mocked client."""
     db = SupabaseDB()
     await db.start()
     
     class FakeResult:
+        """Stub result carrying one stored expiry row."""
         data = [{"expiry": "2026-03-26", "expiry_type": "WEEKLY", "fetched_at": "2026-03-23T00:00:00"}]
     mock_supabase._execute.return_value = FakeResult()
     

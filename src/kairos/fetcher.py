@@ -41,6 +41,7 @@ class DhanFetcher:
     """
 
     def __init__(self) -> None:
+        """Create the fetcher in an unstarted state; call start() before use."""
         self._client: Optional[httpx.AsyncClient] = None
 
     async def start(self) -> None:
@@ -69,6 +70,11 @@ class DhanFetcher:
             logger.info("DhanFetcher: HTTP client closed")
 
     def _check_client(self) -> None:
+        """
+        Guard every request against use before start().
+
+        :raises RuntimeError: if the shared HTTP client has not been initialised.
+        """
         if self._client is None:
             raise RuntimeError("DhanFetcher not started — call await fetcher.start() first")
 

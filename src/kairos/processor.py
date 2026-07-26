@@ -25,6 +25,7 @@ from kairos.models import (
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _result(name: str, status: str, points: int, max_points: int, detail: str) -> ConditionResult:
+    """Build a ConditionResult — the common return shape for every scoring function."""
     return ConditionResult(
         name=name,
         status=status,
@@ -304,6 +305,7 @@ def score_oi_flow(
     )
 
     def _make_result(score: int, reason: str) -> tuple[ConditionResult, OIFlowResult]:
+        """Pair the scoring result with its Discord-facing OIFlowResult snapshot."""
         status = "GREEN" if score == 1 else "RED"
         oi_result = OIFlowResult(score=score, phase=phase, reason=reason, **common)
         cond_result = _result("oi_flow", status, score, 1, reason)

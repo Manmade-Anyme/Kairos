@@ -7,6 +7,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """
+    Central configuration for the Kairos engine.
+
+    Holds every credential, session boundary, buffer size, and scoring threshold
+    used by the system. Values are loaded from the environment (and a local `.env`
+    file when present), so tuning the engine never requires touching logic —
+    every magic number lives here as a named, overridable field.
+    """
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

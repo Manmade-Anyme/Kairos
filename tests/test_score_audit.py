@@ -31,6 +31,7 @@ SAMPLE_SUMMARY = (
 
 
 def _row(score, dte=6, summary_raw="", **statuses):
+    """Build one environment_log row, defaulting every condition status so tests set only what they assert on."""
     defaults = {
         "iv_trend": "YELLOW",
         "momentum": "YELLOW",
@@ -45,6 +46,7 @@ def _row(score, dte=6, summary_raw="", **statuses):
 
 
 def test_parse_summary_metrics_full():
+    """Every metric pattern lifts its raw value out of a full summary_raw block."""
     metrics = parse_summary_metrics(SAMPLE_SUMMARY)
     assert metrics["iv_change"] == 0.87
     assert metrics["momentum_range_pct"] == 0.18
@@ -57,16 +59,19 @@ def test_parse_summary_metrics_full():
 
 
 def test_parse_summary_metrics_empty():
+    """An absent or empty summary_raw yields no metrics rather than raising."""
     assert parse_summary_metrics("") == {}
     assert parse_summary_metrics(None or "") == {}
 
 
 def test_score_histogram():
+    """Cycles are tallied per total score and returned in ascending score order."""
     rows = [_row(5), _row(6), _row(6), _row(3)]
     assert score_histogram(rows) == {3: 1, 5: 1, 6: 2}
 
 
 def test_condition_rates():
+    """Per-condition GREEN/YELLOW/RED counts are tallied independently for each column."""
     rows = [_row(6, momentum="GREEN"), _row(5, momentum="RED")]
     rates = condition_rates(rows)
     assert rates["momentum"] == {"GREEN": 1, "RED": 1}
@@ -74,6 +79,7 @@ def test_condition_rates():
 
 
 def test_green_cooccurrence_detects_conflict():
+    """Co-occurrence reports P(other GREEN | base GREEN), exposing structurally conflicting conditions."""
     # vwap_distance GREEN in 3 rows; momentum GREEN in only 1 of those.
     rows = [
         _row(6, vwap_distance="GREEN", momentum="GREEN"),
@@ -86,6 +92,7 @@ def test_green_cooccurrence_detects_conflict():
 
 
 def test_build_report_contains_sections():
+    """The rendered report carries the observed maximum, per-condition rates, co-occurrence, and parsed metrics."""
     rows = [_row(6, summary_raw=SAMPLE_SUMMARY), _row(5)]
     report = build_report(rows, days=30)
     assert "Observed maximum score:** 6/8" in report
@@ -95,5 +102,6 @@ def test_build_report_contains_sections():
 
 
 def test_build_report_empty():
+    """An empty result set produces an explicit 'no rows' report instead of misleading zeros."""
     report = build_report([], days=7)
     assert "No environment_log rows" in report

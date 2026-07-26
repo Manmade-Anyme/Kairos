@@ -73,7 +73,7 @@ def parse_summary_metrics(summary_raw: str) -> dict[str, float]:
 
 
 def score_histogram(rows: list[dict]) -> dict[int, int]:
-    """Count cycles per total score (0–8)."""
+    """Count cycles per total score (0-8)."""
     hist: dict[int, int] = {}
     for row in rows:
         score = row.get("score")

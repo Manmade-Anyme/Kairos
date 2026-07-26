@@ -141,7 +141,7 @@ async def test_run_cycle(mock_dependencies, dummy_session, dummy_candle, dummy_l
 
 @pytest.mark.asyncio
 async def test_run_heartbeat(mock_dependencies, dummy_session):
-    """The heartbeat posts to the health webhook while a session is active."""
+    """Even with an active session the heartbeat stays silent (suppressed per ADR-006)."""
     import kairos.scheduler as sched
     sched.state.active_config = dummy_session
     sched.state.in_session = True

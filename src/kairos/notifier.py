@@ -381,7 +381,7 @@ def _get_session_label() -> str:
     """
     Describe the current trading window for the alert header.
 
-    :return: A human-readable session label (e.g. "Open (09:15–11:45)") based on
+    :return: A human-readable session label (e.g. "Open (09:15-11:45)") based on
              the configured session boundaries and the current IST clock.
     """
     now = datetime.now(IST)

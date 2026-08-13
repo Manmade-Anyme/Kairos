@@ -1,0 +1,34 @@
+name: Jules Automated PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: jules-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+      statuses: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Checkout Private Action
+        uses: actions/checkout@v4
+        with:
+          repository: google-github-actions/jules-pr-reviewer
+          ref: v1
+          token: ${{ secrets.ACTION_PULL_TOKEN }}
+          path: .github/actions/jules-pr-reviewer
+
+      - name: Run Jules PR Reviewer
+        uses: ./.github/actions/jules-pr-reviewer
+        with:
+          api-key: ${{ secrets.JULES_API_KEY }}

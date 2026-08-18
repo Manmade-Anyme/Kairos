@@ -71,8 +71,6 @@ create table if not exists environment_log (
     move_ratio      text not null,
     vwap_distance   text not null,
     iv_capped       boolean not null default false,
-    ce_oi_change    integer,                        -- weighted-mean CE OI delta across the ATM cluster
-    pe_oi_change    integer,                        -- weighted-mean PE OI delta across the ATM cluster
     summary_raw     text,                           -- Python-generated template string
     summary         text                            -- Gemini-polished (filled by Discord Orchestrator)
 );

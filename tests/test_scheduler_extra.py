@@ -1,9 +1,3 @@
-"""
-Branch-coverage tests for the scheduler.
-
-Covers session gating, buffer resets, OI rolling-window maths, IV-cap hysteresis,
-and the recovery paths for API and authentication failures.
-"""
 import pytest
 import asyncio
 from datetime import date, datetime, timedelta
@@ -26,7 +20,6 @@ IST = ZoneInfo("Asia/Kolkata")
 
 @pytest.fixture
 def mock_deps(mocker):
-    """Patch the db, fetcher, and notifier singletons as async mocks."""
     # We must patch where they are IMPORTED in scheduler.py
     mocker.patch("kairos.scheduler.db", new_callable=AsyncMock)
     mocker.patch("kairos.scheduler.fetcher", new_callable=AsyncMock)
@@ -35,7 +28,6 @@ def mock_deps(mocker):
     mocker.patch("kairos.scheduler.load_dhan_credentials_from_supabase", new_callable=AsyncMock)
 
 def test_session_gate_logic(mocker):
-    """Session and lunch-break gates resolve correctly across the configured boundaries."""
     # Mocking datetime.now is tricky, let's patch the function that returns now()
     # Actually, let's just patch is_active_session and is_lunch_break for most tests,
     # but for THESE tests we need to control time.
@@ -62,7 +54,6 @@ def test_session_gate_logic(mocker):
 
 @pytest.mark.asyncio
 async def test_run_startup_checks_variants(mock_deps, mocker):
-    """Startup survives a failing previous-day-levels fetch and still reports status."""
     import kairos.scheduler as sched
     sched.fetcher.test_connectivity.return_value = True
     sched.db.test_connectivity.return_value = True
@@ -77,7 +68,6 @@ async def test_run_startup_checks_variants(mock_deps, mocker):
 
 @pytest.mark.asyncio
 async def test_run_cycle_stopped(mock_deps):
-    """No active session clears in-session state and skips scoring."""
     import kairos.scheduler as sched
     sched.db.get_active_session.return_value = None
     sched.state.in_session = True
@@ -86,7 +76,6 @@ async def test_run_cycle_stopped(mock_deps):
 
 @pytest.mark.asyncio
 async def test_run_cycle_stale_expiry(mock_deps):
-    """A past expiry is treated as stale and does not score."""
     import kairos.scheduler as sched
     past = date.today() - timedelta(days=1)
     cfg = SessionConfig(symbol="NIFTY", expiry=past, expiry_type="WEEKLY", status="ACTIVE")
@@ -100,7 +89,6 @@ async def test_run_cycle_stale_expiry(mock_deps):
 
 @pytest.mark.asyncio
 async def test_run_cycle_config_change_reset(mock_deps):
-    """A changed session config resets the rolling buffers."""
     import kairos.scheduler as sched
     sched.state.startup_done = True
     sched.state.active_config = SessionConfig(symbol="NIFTY", expiry=date.today(), expiry_type="WEEKLY", status="ACTIVE")
@@ -113,7 +101,6 @@ async def test_run_cycle_config_change_reset(mock_deps):
 
 @pytest.mark.asyncio
 async def test_run_cycle_oi_delta_new_strike(mock_deps, mocker):
-    """A strike absent from the prior snapshot is handled when computing the OI delta."""
     import kairos.scheduler as sched
     sched.state.startup_done = True
     sched.state.in_session = True
@@ -143,7 +130,6 @@ async def test_run_cycle_oi_delta_new_strike(mock_deps, mocker):
 
 @pytest.mark.asyncio
 async def test_run_cycle_api_recovery(mock_deps, mocker):
-    """The cycle resumes normally after a transient API failure."""
     import kairos.scheduler as sched
     sched.state.startup_done = True
     sched.state.in_session = True
@@ -163,7 +149,6 @@ async def test_run_cycle_api_recovery(mock_deps, mocker):
 
 @pytest.mark.asyncio
 async def test_run_cycle_pdh_lazy_load_failure(mock_deps, mocker):
-    """A failed lazy PDH/PDL load is tolerated without aborting the cycle."""
     import kairos.scheduler as sched
     sched.state.startup_done = True
     sched.state.in_session = True
@@ -182,7 +167,6 @@ async def test_run_cycle_pdh_lazy_load_failure(mock_deps, mocker):
 
 @pytest.mark.asyncio
 async def test_run_cycle_significant_change_detection(mock_deps, mocker):
-    """A condition status change is treated as significant and triggers an alert."""
     import kairos.scheduler as sched
     sched.state.startup_done = True
     sched.state.in_session = True
@@ -215,7 +199,6 @@ async def test_run_cycle_significant_change_detection(mock_deps, mocker):
 
 @pytest.mark.asyncio
 async def test_run_cycle_iv_cap_hold_go_to_caution(mock_deps, mocker):
-    """With the cap held and IV not yet GREEN, a GO result is downgraded to CAUTION."""
     import kairos.scheduler as sched
     sched.state.startup_done = True
     sched.state.in_session = True
@@ -242,7 +225,6 @@ async def test_run_cycle_iv_cap_hold_go_to_caution(mock_deps, mocker):
 
 @pytest.mark.asyncio
 async def test_heartbeat_none_config(mock_deps):
-    """The heartbeat returns early when no session config exists."""
     import kairos.scheduler as sched
     sched.db.get_active_session.return_value = None
     await run_heartbeat()
@@ -251,7 +233,6 @@ async def test_heartbeat_none_config(mock_deps):
 
 @pytest.mark.asyncio
 async def test_run_cycle_dynamic_auth_recovery(mock_deps, mocker):
-    """An auth error triggers a credential reload and the cycle recovers."""
     import kairos.scheduler as sched
     from kairos.fetcher import DhanAuthError
     
@@ -304,7 +285,6 @@ async def test_run_cycle_dynamic_auth_recovery(mock_deps, mocker):
 
 @pytest.mark.asyncio
 async def test_run_cycle_oi_rolling_calculation(mock_deps, mocker, make_option_row):
-    """OI deltas are computed against the rolling snapshot window, not a day-level baseline."""
     import kairos.scheduler as sched
     from kairos.config import settings
     

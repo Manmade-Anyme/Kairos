@@ -17,7 +17,7 @@ from loguru import logger
 
 from kairos.config import settings
 from kairos.db import db, load_dhan_credentials_from_supabase
-from kairos.engine import _determine_status, evaluate
+from kairos.engine import evaluate
 from kairos.fetcher import DhanAPIError, DhanAuthError, fetcher
 from kairos.models import PreviousDayLevels, SessionConfig
 from kairos.notifier import notifier
@@ -33,7 +33,6 @@ class SessionState:
     """Mutable session state shared between the two scheduler jobs."""
 
     def __init__(self) -> None:
-        """Initialise empty rolling buffers and reset all per-session tracking flags."""
         # In-memory rolling buffers
         self.candle_buffer: deque = deque(maxlen=settings.candle_buffer_size)
         self.iv_buffer: deque = deque(maxlen=settings.iv_buffer_size)
@@ -153,12 +152,6 @@ def is_lunch_break() -> bool:
 
 
 def get_session_name() -> str:
-    """
-    Name the trading window the engine is currently monitoring.
-
-    :return: "Open (…)" during session 1, otherwise "Post-Lunch (…)", with the
-             configured start/end times rendered inline.
-    """
     now = datetime.now(IST)
     h, m = now.hour, now.minute
     if settings.session_1_start <= (h, m) <= settings.session_1_end:
@@ -496,12 +489,10 @@ async def run_cycle() -> None:
         # Engine flagged RED this cycle — activate cap
         state.iv_cap_active = True
     elif state.iv_cap_active and (iv_condition and iv_condition.status != "GREEN"):
-        # Cap was previously active and IV hasn't recovered to GREEN yet — hold cap.
-        # Reuse the engine's status mapping so the GO→CAUTION downgrade has a
-        # single implementation (this HOLD path is the only place it can bite:
-        # an engine-level RED IV scores 0/2, capping the total at 6 < GO).
+        # Cap was previously active and IV hasn't recovered to GREEN yet — hold cap
         score.iv_capped = True
-        score.status = _determine_status(score.score, iv_capped=True)
+        if score.status == "GO":
+            score.status = "CAUTION"
     else:
         # Either cap was never active, or IV recovered to GREEN — release
         state.iv_cap_active = False
@@ -650,7 +641,6 @@ async def main() -> None:
 
     # Graceful shutdown handler
     def handle_shutdown(sig, frame):
-        """Exit cleanly on SIGTERM/SIGINT so Fly.io can scale the machine to zero."""
         logger.info(f"Received signal {sig} — shutting down")
         sys.exit(0)
 

@@ -5,7 +5,7 @@ Tests cover:
   1. Vega trap fires correctly (3 tests)
   2. NDE contradiction fires correctly (3 tests)
   3. GEX pin caps score (2 tests)
-  4. RULE D green gate — phase + NDE conviction, ADR-025 (5 tests)
+  4. All conditions required for green (4 tests)
   5. Priority ordering B > C > A (2 tests)
   6. Warmup handling (1 test)
 """
@@ -180,11 +180,10 @@ class TestGEXPin:
 # ═════════════════════════════════════════════════════════════════════════════
 
 class TestFullGreen:
-    """RULE D (ADR-025): directional phase + NDE conviction → score=1.
-    GEX only vetoes as a pin; PCR is descriptive context, not a gate."""
+    """All conditions aligned → score=1 (Rule D)."""
 
     def test_bearish_full_conviction(self, make_cluster, make_candle):
-        """Bearish phase + NDE confirms (GEX trending, PCR bearish) → score=1."""
+        """GEX trend + NDE confirms + PCR bearish → score=1."""
         cluster, buf = _cluster(
             make_cluster, make_candle,
             price_change=-10.0,              # bearish (Short Buildup with OI up)
@@ -199,7 +198,7 @@ class TestFullGreen:
         assert "bearish" in oi.reason.lower()
 
     def test_bullish_full_conviction(self, make_cluster, make_candle):
-        """Bullish phase + NDE confirms (GEX trending) → score=1."""
+        """GEX trend + NDE confirms + PCR bullish → score=1."""
         cluster, buf = _cluster(
             make_cluster, make_candle,
             price_change=10.0,               # bullish (Long Buildup with OI up)
@@ -212,65 +211,30 @@ class TestFullGreen:
         assert cond.status == "GREEN"
         assert oi.score == 1
 
-    def test_bearish_green_in_call_heavy_tape(self, make_cluster, make_candle):
-        """ADR-025 regression — the live 2026-07-22 regime: Short Buildup with
-        call-heavy chain (PCR < 1, GEX neutral/positive-lean). Pre-fix this was
-        unreachable because bearish PCR-confirm (call-heavy) and GEX-trend
-        (put-heavy) were mutually exclusive. Now: phase + NDE carry direction."""
+    def test_missing_gex_trend_stays_red(self, make_cluster, make_candle):
+        """NDE confirms + PCR aligned but GEX neutral → score=0 (mixed signals)."""
         cluster, buf = _cluster(
             make_cluster, make_candle,
-            price_change=-10.0,              # bearish
-            net_gex=0.0,                     # neutral — exactly what live tape showed
-            net_delta_exposure=-500_000.0,   # net short delta confirms the fall
-            pcr=0.90,                        # call-heavy tape (like live 0.73-0.96)
+            price_change=-10.0,
+            net_gex=0.0,                     # neutral (not trending)
+            net_delta_exposure=-500_000.0,
+            pcr=0.90,
         )
         cond, oi = score_oi_flow(cluster, iv_change_rate=0.5, candle_buffer=buf)
-        assert cond.points == 1
-        assert cond.status == "GREEN"
-        assert "GEX neutral" in oi.reason
+        assert cond.points == 0
+        assert "Mixed signals" in oi.reason
 
-    def test_pcr_divergent_no_longer_blocks(self, make_cluster, make_candle):
-        """ADR-025: PCR is context, not a gate — divergent PCR is reported but
-        does not veto a phase-aligned NDE conviction."""
+    def test_missing_pcr_stays_red(self, make_cluster, make_candle):
+        """GEX trend + NDE confirms but PCR balanced → score=0."""
         cluster, buf = _cluster(
             make_cluster, make_candle,
             price_change=-10.0,
             net_gex=-2_000_000.0,
             net_delta_exposure=-500_000.0,
-            pcr=1.00,                        # balanced — old gate would have blocked
-        )
-        cond, oi = score_oi_flow(cluster, iv_change_rate=0.5, candle_buffer=buf)
-        assert cond.points == 1
-        assert "PCR divergent" in oi.reason
-
-    def test_pullback_phase_never_green(self, make_cluster, make_candle):
-        """Short Covering (price up on OI unwind) is exit flow, not fresh
-        conviction — RED even when NDE aligns with the direction (scoring
-        contract: pullback phases are never traded)."""
-        cluster, buf = _cluster(
-            make_cluster, make_candle,
-            price_change=10.0,               # price rising...
-            ce_oi=-6000, pe_oi=-6000,        # ...on OI unwind: SHORT_COVERING
-            net_delta_exposure=500_000.0,    # NDE would confirm the bullish side
-            pcr=1.10,
+            pcr=1.00,                        # balanced, doesn't confirm bearish
         )
         cond, oi = score_oi_flow(cluster, iv_change_rate=0.5, candle_buffer=buf)
         assert cond.points == 0
-        assert "Pullback" in oi.reason
-
-    def test_nde_neutral_stays_red(self, make_cluster, make_candle):
-        """Directional phase but NDE under the conviction bar → score=0."""
-        cluster, buf = _cluster(
-            make_cluster, make_candle,
-            price_change=-10.0,
-            net_gex=0.0,
-            net_delta_exposure=-100_000.0,   # |nde| = 5% of gross < 10% bar
-            pcr=0.90,
-        )
-        cond, oi = score_oi_flow(cluster, iv_change_rate=0.5, candle_buffer=buf)
-        assert cond.points == 0
-        assert oi.nde_state == "neutral"
-        assert "No directional conviction" in oi.reason
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -332,7 +296,6 @@ class TestConsensusFilter:
     """Consensus voting filter tests."""
 
     def test_empty_buffer_returns_warmup(self):
-        """An empty consensus buffer reports warmup rather than a scored verdict."""
         buf = deque(maxlen=8)
         cond, oi = consolidate_oi_flow(buf)
         assert cond.status == "YELLOW"
@@ -340,7 +303,6 @@ class TestConsensusFilter:
         assert oi.score == 0
 
     def test_green_consensus_met(self):
-        """Five green cycles out of eight meet the consensus threshold and score 1."""
         buf = deque(maxlen=8)
         # 5 green, 3 red
         for _ in range(3):
@@ -356,7 +318,6 @@ class TestConsensusFilter:
         assert "Consensus 5/8" in cond.detail
 
     def test_green_consensus_not_met(self):
-        """Four green cycles fall short of the 5/8 threshold and stay RED."""
         buf = deque(maxlen=8)
         # 4 green, 4 red
         for _ in range(4):
@@ -371,7 +332,6 @@ class TestConsensusFilter:
         assert "consensus not met" in cond.detail
 
     def test_vega_trap_override(self):
-        """Three vega-trap cycles force RED even when the green count would otherwise pass."""
         buf = deque(maxlen=8)
         # 5 green, but 3 of the red/green cycles have vega trap
         for _ in range(5):
@@ -389,7 +349,6 @@ class TestConsensusFilter:
         assert "Vega trap active (3/8 cycles)" in cond.detail
 
     def test_gex_pin_override(self):
-        """Three GEX-pin cycles force RED even when the green count would otherwise pass."""
         buf = deque(maxlen=8)
         # 3 gex pins
         for _ in range(5):
@@ -404,7 +363,6 @@ class TestConsensusFilter:
         assert "GEX pin active (3/8 cycles)" in cond.detail
 
     def test_mode_phase_wins(self):
-        """The consolidated phase is the buffer's most frequent one, breaking ties toward the most recent."""
         buf = deque(maxlen=8)
         # 3 Long Buildup, 2 Short Buildup, 3 Neutral
         # To resolve tie, check unique_phases reversed (most recent first wins)

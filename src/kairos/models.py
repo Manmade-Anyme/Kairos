@@ -45,7 +45,6 @@ class OptionChainRow(BaseModel):
     @field_validator("option_type")
     @classmethod
     def validate_option_type(cls, v: str) -> str:
-        """Reject any option type other than CE or PE."""
         if v not in ("CE", "PE"):
             raise ValueError(f"option_type must be CE or PE, got {v}")
         return v
@@ -53,7 +52,6 @@ class OptionChainRow(BaseModel):
     @field_validator("symbol")
     @classmethod
     def validate_symbol(cls, v: str) -> str:
-        """Restrict the traded symbol to the indices Kairos is calibrated for."""
         if v not in ("NIFTY", "SENSEX"):
             raise ValueError(f"symbol must be NIFTY or SENSEX, got {v}")
         return v
@@ -99,7 +97,6 @@ class SessionConfig(BaseModel):
     @field_validator("expiry_type")
     @classmethod
     def validate_expiry_type(cls, v: str) -> str:
-        """Reject any expiry type other than WEEKLY or MONTHLY."""
         if v not in ("WEEKLY", "MONTHLY"):
             raise ValueError(f"expiry_type must be WEEKLY or MONTHLY, got {v}")
         return v
@@ -107,7 +104,6 @@ class SessionConfig(BaseModel):
     @field_validator("status")
     @classmethod
     def validate_status(cls, v: str) -> str:
-        """Restrict a session's lifecycle status to ACTIVE or STOPPED."""
         if v not in ("ACTIVE", "STOPPED"):
             raise ValueError(f"status must be ACTIVE or STOPPED, got {v}")
         return v
@@ -216,7 +212,6 @@ class ConditionResult(BaseModel):
     @field_validator("status")
     @classmethod
     def validate_status(cls, v: str) -> str:
-        """Restrict a single condition's traffic-light status to GREEN, YELLOW, or RED."""
         if v not in ("GREEN", "YELLOW", "RED"):
             raise ValueError(f"status must be GREEN, YELLOW, or RED, got {v}")
         return v
@@ -272,7 +267,6 @@ class EnvironmentScore(BaseModel):
     @field_validator("status")
     @classmethod
     def validate_status(cls, v: str) -> str:
-        """Restrict the aggregate environment verdict to GO, CAUTION, or AVOID."""
         if v not in ("GO", "CAUTION", "AVOID"):
             raise ValueError(f"status must be GO, CAUTION, or AVOID, got {v}")
         return v

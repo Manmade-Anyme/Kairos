@@ -40,10 +40,8 @@ Based on the current score and specifically the state of the Implied Volatility 
 **Weight:** 1 Point | **Time Parameter:** 15-Minute Rolling Baseline + 8-Minute Rolling Consensus Filter (ADR-021)
 **Logic:** A full-chain evaluation that cross-verifies price action phases against institutional positioning (GEX, NDE, Vega). To stabilize the 1-minute signal, an 8-minute rolling consensus filter (T-0 to T-7) is applied to the raw outputs. The final status is GREEN (1 Pt) only if at least 5 out of the last 8 cycles are raw GREEN, and the reported phase is the mode (most frequent) of those 8 cycles. If a Vega Trap or GEX Pin occurs in >= 3 of the last 8 cycles, the score is immediately forced to RED (0 Pts) for risk safety.
 
-#### Evaluation Logic (Priority-Ordered, ADR-025)
+#### Evaluation Logic (Priority-Ordered)
 The engine evaluates the following metrics in a strict hierarchy. If any high-priority "AVOID" rule is triggered, the final score for this condition is **RED (0 Pts)** regardless of the trend phase.
-
-> **Design note (ADR-025):** GEX sign, NDE sign, and PCR are three differently-weighted reads of the *same* call/put OI imbalance. The original gate required all three to "confirm" the phase simultaneously, which is self-contradictory (a bearish confirm needs a call-heavy PCR but a put-heavy GEX; a bullish confirm needs a put-heavy GEX/PCR but a call-heavy NDE) — verified against live alerts where GEX read "trend" 0/14 times. The lenses are therefore **decoupled**: GEX vetoes pins (volatility regime), phase + NDE carry direction (conviction), and PCR is descriptive context only.
 
 1.  **Vega Trap Gate (Rule B):**
     *   **Trigger:** High ATM Vega Exposure + Contracting IV Rate.
@@ -58,18 +56,16 @@ The engine evaluates the following metrics in a strict hierarchy. If any high-pr
 4.  **Theta Dominance:**
     *   **Trigger:** High Theta Burn Rate WITHOUT confirming NDE momentum.
     *   **Result:** 🔴 RED (0 Pts). Time decay is the dominant force; professional writers are in control.
-5.  **Directional Phase Mapping (Rule D — NDE Conviction):**
-    *   **GREEN (1 Pt):** A directional **Long Buildup** or **Short Buildup** phase whose direction is confirmed by **NDE** positioning. GEX "trend" (dealers amplifying) and PCR alignment are reported as context/strengtheners, never required.
-    *   **RED (0 Pts):** Neutral phases, NDE below the conviction bar, or "Pullback" phases (Short Covering / Long Unwinding).
+5.  **Directional Phase Mapping (Unified Conviction):**
+    *   **GREEN (1 Pt):** Transition to **Long Buildup** or **Short Buildup** verified by **GEX Trend** (dealers amplifying moves) and aligned **PCR**.
+    *   **RED (0 Pts):** Neutral phases, "Straddle Writing" environments, or "Pullback" phases (Short Covering / Long Unwinding).
 
 | Metric | Threshold (Dynamic Default) | Role |
 |---|---|---|
-| GEX Area | > 20% of Total Absolute Chain GEX | **Veto only**: pins (absorb) force RED; "trend" (amplify) is context. |
-| NDE Limit | > 10% of Total Absolute Chain NDE (ADR-025, provisional) | The directional conviction gate; contradiction still hard-vetoes. |
-| PCR Bias | Bull: > 1.05 / Bear: < 0.95 | **Context only** — shown in alerts, no longer gates the score. |
+| GEX Area | > 20% of Total Absolute Chain GEX | Determines if dealers pin (absorb) or trend (amplify) moves. |
+| NDE Limit | > 20% of Total Absolute Chain NDE | Verifies directional bias and checks for trapped positioning. |
+| PCR Bias | Bull: > 1.05 / Bear: < 0.95 | Confirms alignment of the broader chain sentiment. |
 | Vega Trap | > 40% of Total Chain Vega + IV Δ < 0 | Prevents entries into aggressive IV-contraction (theta trap) zones. |
-
-Every cycle also appends a `📐 c3_raw: gex=… nde=… pcr=…` telemetry line to `summary_raw`, feeding `execution/score_audit.py` so these bars are recalibrated from measured distributions.
 
 ### Condition 4: Averaged Gamma/Theta Ratio (DTE-Scaled)
 **Weight:** 1 Point | **Time Parameter:** Days To Expiry (DTE)
@@ -78,10 +74,9 @@ Every cycle also appends a `📐 c3_raw: gex=… nde=… pcr=…` telemetry line
 * **Unit Normalization:** Dhan returns `theta` as an absolute ₹-per-day decay (e.g. `-29.3`), while `gamma` is expressed per point² (e.g. `0.00047`). These are on incompatible scales. Before computing the ratio, `theta` is normalized by the current spot price: `theta_normalized = theta / spot_price`. This converts theta to a per-point basis, matching gamma's scale.
 * **Ratio:** `gamma / theta_normalized` (rounded to 6 decimal places).
 * **Cold-Start Guard:** If `gamma == 0` (session open artifact), returns **YELLOW** status ("data not yet populated") instead of a false-negative RED.
-* **Measured Scale (ADR-024):** With real Dhan payloads the normalized ratio lands in the **~0.5–3.0** range (live sample: `1.99` at DTE=6) — not the `0.0000xx` range the original thresholds assumed, which had made this condition unconditionally GREEN. Bars below are provisional (original tier proportions at the measured scale) and are refined from `execution/score_audit.py` distributions.
-* **DTE >= 3 (Lenient):** 🟢 Ratio > 1.50 | 🟡 (0 Pts) > 0.75 | 🔴 Below
-* **DTE = 2 (Standard):** 🟢 Ratio > 2.25 | 🟡 (0 Pts) > 1.10 | 🔴 Below
-* **DTE = 1 (Expiry - Strict):** 🟢 Ratio > 3.75 | 🟡 (0 Pts) > 1.50 | 🔴 Below
+* **DTE >= 3 (Lenient):** 🟢 Ratio > 0.000080 | 🟡 (0 Pts) > 0.000040 | 🔴 Below
+* **DTE = 2 (Standard):** 🟢 Ratio > 0.000120 | 🟡 (0 Pts) > 0.000060 | 🔴 Below
+* **DTE = 1 (Expiry - Strict):** 🟢 Ratio > 0.000200 | 🟡 (0 Pts) > 0.000080 | 🔴 Below
 
 ### Condition 5: Previous Day High/Low (PDHL) Breakout
 **Weight:** 1 Point | **Time Parameter:** Previous Day Daily Candles
@@ -103,20 +98,13 @@ Every cycle also appends a `📐 c3_raw: gex=… nde=… pcr=…` telemetry line
 * **🔴 Red (0 Pts):** Ratio < 0.7 (Premium is entirely overvalued, theta sink).
 * **Warmup:** System fetches data silently 15 minutes prior to Session 2 start to fully populate the buffer.
 
-### Condition 7: VWAP Distance Expansion (Trend-Aware, ADR-024)
+### Condition 7: VWAP Distance Expansion
 **Weight:** 1 Point | **Time Parameter:** Current Session (Resets Daily)
-**Logic:** Moving too far from the session VWAP (Volume Weighted Average Price) implies technical over-extension and increases the probability of mean-reversion, discouraging fresh continuation entries. However, in a **confirmed PDH/PDL breakout**, extension from VWAP on the breakout side is *expected trend behavior* — historically the strict bands made this condition structurally contradict the trend conditions (C2/C5/C6), capping any genuine trend day at 7/8.
-* **Data Source:** Latest incrementally calculated VWAP since 09:15 session start. Distance = `abs(Spot - VWAP) / VWAP * 100`. The active breakout direction is derived from the same PDH/PDL levels used by Condition 5.
-
-**Range Regime (no breakout, or price crossed back through VWAP against the breakout):**
+**Logic:** Moving too far from the session VWAP (Volume Weighted Average Price) implies technical over-extension and increases the probability of mean-reversion, discouraging fresh continuation entries.
+* **Data Source:** Latest incrementally calculated VWAP since 09:15 session start. Distance = `abs(Spot - VWAP) / VWAP * 100`.
 * **🟢 Green (1 Pt):** Distance < 0.20%. Trending close to average value area. Room to run.
 * **🟡 Yellow (0 Pts):** Distance 0.20% - 0.40%. Mildly extended.
 * **🔴 Red (0 Pts):** Distance > 0.40%. Too extended. High risk of exhaustion.
-
-**Trend Regime (breakout active AND price on the breakout side of VWAP):**
-* **🟢 Green (1 Pt):** Distance < 0.50%. Healthy trend riding away from the mean.
-* **🟡 Yellow (0 Pts):** Distance 0.50% - 0.75%. Stretched trend.
-* **🔴 Red (0 Pts):** Distance > 0.75%. Parabolic over-extension, exhaustion risk.
 
 ---
 

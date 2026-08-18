@@ -1,10 +1,3 @@
-"""
-Shared pytest fixtures for the Kairos test suite.
-
-Provides frozen clock values and factory fixtures that build the domain objects
-the scoring engine consumes (candles, option-chain rows, ATM pairs, strike
-clusters), so individual tests only specify the fields they actually exercise.
-"""
 import pytest
 from datetime import datetime, date
 from kairos.models import (
@@ -17,19 +10,15 @@ from kairos.models import (
 
 @pytest.fixture
 def mock_now():
-    """Frozen timestamp so scored results are reproducible across runs."""
     return datetime(2026, 3, 22, 10, 0, 0)
 
 @pytest.fixture
 def mock_date():
-    """Frozen trade date matching mock_now, used for expiry and session fields."""
     return date(2026, 3, 22)
 
 @pytest.fixture
 def make_candle(mock_now):
-    """Factory fixture for OHLCVCandle objects."""
     def _make(close, volume=1000, high=None, low=None, vwap=None):
-        """Build a candle, defaulting high/low/vwap to the close for flat-price cases."""
         return OHLCVCandle(
             timestamp=mock_now,
             symbol="NIFTY",
@@ -44,9 +33,7 @@ def make_candle(mock_now):
 
 @pytest.fixture
 def make_option_row(mock_now, mock_date):
-    """Factory fixture for OptionChainRow objects."""
     def _make(strike, opt_type, iv=0.15, delta=0.5, gamma=0.0, theta=0.0, vega=0.0, oi=1000, previous_oi=1100, oi_change=10, ltp=100.0):
-        """Build one chain row with neutral Greeks defaults; override only what a test needs."""
         return OptionChainRow(
             timestamp=mock_now,
             symbol="NIFTY",
@@ -70,9 +57,7 @@ def make_option_row(mock_now, mock_date):
 
 @pytest.fixture
 def make_atm(make_option_row):
-    """Factory fixture for ATMStrikes pairs."""
     def _make(spot_price, ce_iv=0.15, ce_gamma=0.0, ce_theta=0.0, ce_oi_change=0, pe_oi_change=0, ce_ltp=100.0, pe_ltp=100.0, pe_gamma=None, pe_theta=None):
-        """Build an ATM CE/PE pair at the strike nearest spot, mirroring CE Greeks onto the PE unless overridden."""
         atm_strike = round(spot_price / 50) * 50
         # Default PE greeks to match CE if not provided, for simplicity in existing tests
         p_gamma = pe_gamma if pe_gamma is not None else ce_gamma
@@ -85,9 +70,7 @@ def make_atm(make_option_row):
 
 @pytest.fixture
 def make_cluster():
-    """Factory fixture for StrikeCluster objects."""
     def _make(spot_price, ce_oi_change=0, pe_oi_change=0, **kwargs):
-        """Build a cluster with non-zero gross Greeks totals so percentage-based gates are exercisable."""
         atm_strike = round(spot_price / 50) * 50
         
         # Provide base values so percentage-based checks pass for legacy tests
@@ -114,7 +97,6 @@ def make_cluster():
 
 @pytest.fixture(autouse=True)
 def mock_test_settings(monkeypatch):
-    """Shrink lookback windows for every test so short fixture buffers clear warmup guards."""
     from kairos.config import settings
     monkeypatch.setattr(settings, "oi_lookback_cycles", 6)
     monkeypatch.setattr(settings, "candle_buffer_size", 15)

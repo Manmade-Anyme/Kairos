@@ -1,8 +1,3 @@
-"""
-Tests for Discord webhook delivery and alert formatting.
-
-HTTP calls are intercepted with respx so no live webhook is ever contacted.
-"""
 import pytest
 import respx
 import httpx
@@ -13,7 +8,6 @@ from kairos.config import settings
 
 @pytest.fixture
 def dummy_score():
-    """A fully-scored 8/8 GO result used as the default alert payload."""
     return EnvironmentScore(
         timestamp=datetime.now(),
         symbol="NIFTY",
@@ -30,7 +24,6 @@ def dummy_score():
 
 @pytest.fixture
 def dummy_session():
-    """An active NIFTY weekly session used for startup and heartbeat posts."""
     return SessionConfig(
         symbol="NIFTY",
         expiry=date(2026,3,26),
@@ -40,7 +33,6 @@ def dummy_session():
 
 @pytest.mark.asyncio
 async def test_notifier_start_stop():
-    """The shared HTTP client is created on start and closed on stop."""
     notifier = Notifier()
     await notifier.start()
     assert notifier._client is not None
@@ -50,7 +42,6 @@ async def test_notifier_start_stop():
 @pytest.mark.asyncio
 @respx.mock
 async def test_post_environment_alert(dummy_score):
-    """An environment alert posts to the configured #environment webhook."""
     route = respx.post(settings.discord_webhook_url).respond(status_code=204)
     notifier = Notifier()
     await notifier.start()
@@ -69,7 +60,6 @@ async def test_post_environment_alert(dummy_score):
 @pytest.mark.asyncio
 @respx.mock
 async def test_post_startup(dummy_session):
-    """The startup notice posts to the #system-check health webhook."""
     respx.post(settings.discord_health_webhook_url).respond(status_code=204)
     notifier = Notifier()
     await notifier.start()
@@ -87,7 +77,6 @@ async def test_post_startup(dummy_session):
 @pytest.mark.asyncio
 @respx.mock
 async def test_post_environment_alert_failure_does_not_raise(dummy_score):
-    """A webhook failure is logged and swallowed so scoring continues uninterrupted."""
     respx.post(settings.discord_webhook_url).respond(status_code=500)
     notifier = Notifier()
     await notifier.start()
@@ -100,7 +89,6 @@ async def test_post_environment_alert_failure_does_not_raise(dummy_score):
 @pytest.mark.asyncio
 @respx.mock
 async def test_all_notifier_methods():
-    """Every public notifier method posts successfully against mocked webhooks."""
     respx.post(settings.discord_webhook_url).respond(status_code=204)
     respx.post(settings.discord_health_webhook_url).respond(status_code=204)
     notifier = Notifier()
@@ -120,7 +108,6 @@ async def test_all_notifier_methods():
 @pytest.mark.asyncio
 @respx.mock
 async def test_iv_cap_message_suppressed_at_low_score(dummy_score):
-    """The IV-cap badge is suppressed at a low score, where the cap changed nothing."""
     # iv_capped=True but score=3 — cap had no effect, header badge should not appear
     route = respx.post(settings.discord_webhook_url).respond(status_code=204)
     capped_low_score = dummy_score.model_copy()
@@ -144,7 +131,6 @@ async def test_iv_cap_message_suppressed_at_low_score(dummy_score):
 @pytest.mark.asyncio
 @respx.mock
 async def test_iv_cap_message_shown_at_high_score(dummy_score):
-    """The IV-cap badge appears at a high score, where the cap actually downgraded the status."""
     # iv_capped=True and score=8 — cap has effect, header badge should appear
     route = respx.post(settings.discord_webhook_url).respond(status_code=204)
     capped_high_score = dummy_score.model_copy()
@@ -168,7 +154,6 @@ async def test_iv_cap_message_shown_at_high_score(dummy_score):
 @pytest.mark.asyncio
 @respx.mock
 async def test_iv_cap_at_boundary_score(dummy_score):
-    """At the GO boundary score the cap note is shown."""
     # iv_capped=True and score=7 — exactly at boundary, should show cap note
     route = respx.post(settings.discord_webhook_url).respond(status_code=204)
     capped_score = dummy_score.model_copy()
@@ -191,7 +176,6 @@ async def test_iv_cap_at_boundary_score(dummy_score):
 @pytest.mark.asyncio
 @respx.mock
 async def test_iv_cap_just_below_boundary_score(dummy_score):
-    """Just below the GO boundary the cap note is suppressed."""
     # iv_capped=True and score=6 — just below boundary, should be suppressed
     route = respx.post(settings.discord_webhook_url).respond(status_code=204)
     capped_score = dummy_score.model_copy()

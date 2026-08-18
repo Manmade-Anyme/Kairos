@@ -7,15 +7,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """
-    Central configuration for the Kairos engine.
-
-    Holds every credential, session boundary, buffer size, and scoring threshold
-    used by the system. Values are loaded from the environment (and a local `.env`
-    file when present), so tuning the engine never requires touching logic —
-    every magic number lives here as a named, overridable field.
-    """
-
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -118,12 +109,8 @@ class Settings(BaseSettings):
     gex_pin_pct: float = 0.20
     # |net_gex| > total_abs_gex * 0.20 -> pin/trend
 
-    nde_pct_threshold: float = 0.10
-    # |nde| > total_abs_nde * 0.10 -> confirms/contradicts
-    # Relaxed 0.20 -> 0.10 (ADR-025): near-ATM call (+delta) and put (-delta)
-    # exposure cancel in the numerator while the gross denominator adds, so net
-    # delta sits well under a 20% bar even in a real directional flow. Provisional
-    # — refine from the nde/total_abs_nde distribution in score_audit.py.
+    nde_pct_threshold: float = 0.20
+    # |nde| > total_abs_nde * 0.20 -> confirms/contradicts
 
     vega_high_pct: float = 0.40
     # atm_vega_exposure > total_abs_vega * 0.40 -> vega trap
@@ -143,20 +130,15 @@ class Settings(BaseSettings):
     # PCR above this = put writers defending = structurally bullish.
 
     # ── Condition 4: Gamma/Theta — DTE-scaled ────────────────────────────
-    # Ratio = gamma / (abs(theta) / spot). With real Dhan payloads this lands in
-    # the ~0.5-3.0 range (live sample: 1.99 at DTE=6), NOT the 0.0000xx range the
-    # original thresholds assumed — those made C4 unconditionally GREEN.
-    # Bars below are provisional (old tier proportions x observed scale); refine
-    # from measured distributions via execution/score_audit.py.
     # DTE >= 3 (lenient — early week, plenty of time)
-    gamma_theta_dte_high_green: float = 1.5        # DTE≥3 lenient
-    gamma_theta_dte_high_yellow: float = 0.75
+    gamma_theta_dte_high_green: float = 0.00008    # DTE≥3 lenient
+    gamma_theta_dte_high_yellow: float = 0.00004
     # DTE = 2 (standard)
-    gamma_theta_dte_mid_green: float = 2.25        # DTE=2 standard
-    gamma_theta_dte_mid_yellow: float = 1.10
+    gamma_theta_dte_mid_green: float = 0.00012     # DTE=2 standard
+    gamma_theta_dte_mid_yellow: float = 0.00006
     # DTE = 1 (strict — expiry day, theta ruthless)
-    gamma_theta_dte_low_green: float = 3.75        # DTE=1 strict — expiry day
-    gamma_theta_dte_low_yellow: float = 1.50
+    gamma_theta_dte_low_green: float = 0.00020     # DTE=1 strict — expiry day
+    gamma_theta_dte_low_yellow: float = 0.00008
 
     # ── Condition 5: PDH/PDL Breakout ─────────────────────────────────────
     pdhl_near_band_pct: float = 0.10   # % within PDH/PDL = "near breakout"
@@ -169,11 +151,6 @@ class Settings(BaseSettings):
     # ── Condition 7: VWAP Distance ───────────────────────────────────────
     vwap_distance_green: float = 0.20    # % from VWAP
     vwap_distance_yellow: float = 0.40
-    # Trend-mode bands (ADR-024): applied when a PDH/PDL breakout is active AND
-    # price is riding the breakout side of VWAP. Extension from the mean is
-    # expected in a genuine trend; only flag real over-extension.
-    vwap_trend_green: float = 0.50
-    vwap_trend_yellow: float = 0.75
 
     # ── Scoring thresholds ───────────────────────────────────────────────
     # Total max score = 8 (IV=2, all others=1 each)

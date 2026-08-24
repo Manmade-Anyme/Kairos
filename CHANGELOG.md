@@ -11,6 +11,10 @@ All notable changes to this project will be documented in this file.
   - Removed the strict 15-minute interval alert gating for OI Phase changes in `scheduler.py` to allow consensus-smoothed alerts to trigger in real-time.
 
 ### Added
+- **IV Metrics in Alerts (`processor.py`):**
+  - Added absolute **ATM IV** and calculated **IV Change %** (relative to the 15-minute lookback window) to the Environment Status Discord alerts.
+  - Ensures the trader has full visibility into absolute volatility levels alongside the qualitative trend status.
+  - Documented via updates to `docs/scoring_architecture.md` and `directives/TASK-074_add_iv_metrics.md`.
 - **Alert Silencing for Low Scores (`scheduler.py`)**:
   - Implemented noise reduction logic: Discord `#environment` alerts are suppressed when the score is below 6.
   - When the score drops below 6, the system alerts once, then remains silent until the score reaches 6 or above again.

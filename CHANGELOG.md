@@ -5,12 +5,19 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Changed
+- **IV Trend Alert Output (`processor.py`)**:
+  - Added exact ATM IV and calculated IV Change % to the environment status output (MANM-74).
+  - IV Trend messages now include format: `| ATM IV: <value> | IV%: <percentage>%`.
 - **OI Flow Calculation Window**:
   - Migrated from a 15-minute anchored block window to a true **15-minute rolling window** to avoid zero-delta resets at block boundaries.
   - Configured `oi_lookback_cycles = 16` (15-minute lookback) and expanded `candle_buffer_size = 20` to support the larger lookback.
   - Removed the strict 15-minute interval alert gating for OI Phase changes in `scheduler.py` to allow consensus-smoothed alerts to trigger in real-time.
 
 ### Added
+- **IV Metrics in Environment Alert (`processor.py`)**:
+  - Added exact ATM IV and calculated IV Change % to the IV Trend Discord alert to provide exact metrics alongside the trend status.
+  - Handled division-by-zero safety when calculating the IV percentage change.
+  - Resolves MANM-74.
 - **Alert Silencing for Low Scores (`scheduler.py`)**:
   - Implemented noise reduction logic: Discord `#environment` alerts are suppressed when the score is below 6.
   - When the score drops below 6, the system alerts once, then remains silent until the score reaches 6 or above again.

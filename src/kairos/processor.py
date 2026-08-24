@@ -69,6 +69,8 @@ def score_iv_change(iv_buffer: deque, dte: int = 0) -> ConditionResult:
     iv_now = iv_buffer[-1]
     iv_then = iv_buffer[-lookback]
     change = round(iv_now - iv_then, 3)
+    
+    iv_change_pct = ((iv_now - iv_then) / iv_then) * 100 if iv_then != 0 else 0.0
 
     # Select thresholds based on DTE (ADR-011 — mirrors gamma/theta DTE-scaling)
     if dte >= 3:
@@ -85,11 +87,11 @@ def score_iv_change(iv_buffer: deque, dte: int = 0) -> ConditionResult:
         scale_label = "DTE≤1"
 
     if change > green_thresh:
-        return _result("iv_trend", "GREEN", 2, 2, f"+{change:.2f} — IV expanding ({scale_label})")
+        return _result("iv_trend", "GREEN", 2, 2, f"+{change:.2f} — IV expanding ({scale_label}) | ATM IV: {iv_now:.2f} | IV%: {iv_change_pct:+.2f}%")
     elif change >= yellow_thresh:
-        return _result("iv_trend", "YELLOW", 1, 2, f"{change:+.2f} — mild expansion ({scale_label})")
+        return _result("iv_trend", "YELLOW", 1, 2, f"{change:+.2f} — mild expansion ({scale_label}) | ATM IV: {iv_now:.2f} | IV%: {iv_change_pct:+.2f}%")
     else:
-        return _result("iv_trend", "RED", 0, 2, f"{change:+.2f} — IV contracting ({scale_label})")
+        return _result("iv_trend", "RED", 0, 2, f"{change:+.2f} — IV contracting ({scale_label}) | ATM IV: {iv_now:.2f} | IV%: {iv_change_pct:+.2f}%")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

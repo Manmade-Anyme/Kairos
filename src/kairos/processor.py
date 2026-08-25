@@ -86,12 +86,14 @@ def score_iv_change(iv_buffer: deque, dte: int = 0) -> ConditionResult:
         yellow_thresh = settings.iv_change_dte_low_yellow
         scale_label = "DTE≤1"
 
+    suffix = f" | ATM IV: {iv_now:.2f} | IV%: {iv_change_pct:+.2f}%"
+
     if change > green_thresh:
-        return _result("iv_trend", "GREEN", 2, 2, f"+{change:.2f} — IV expanding ({scale_label}) | ATM IV: {iv_now:.2f} | IV%: {iv_change_pct:+.2f}%")
+        return _result("iv_trend", "GREEN", 2, 2, f"+{change:.2f} — IV expanding ({scale_label}){suffix}")
     elif change >= yellow_thresh:
-        return _result("iv_trend", "YELLOW", 1, 2, f"{change:+.2f} — mild expansion ({scale_label}) | ATM IV: {iv_now:.2f} | IV%: {iv_change_pct:+.2f}%")
+        return _result("iv_trend", "YELLOW", 1, 2, f"{change:+.2f} — mild expansion ({scale_label}){suffix}")
     else:
-        return _result("iv_trend", "RED", 0, 2, f"{change:+.2f} — IV contracting ({scale_label}) | ATM IV: {iv_now:.2f} | IV%: {iv_change_pct:+.2f}%")
+        return _result("iv_trend", "RED", 0, 2, f"{change:+.2f} — IV contracting ({scale_label}){suffix}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

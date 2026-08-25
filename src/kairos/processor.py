@@ -6,7 +6,6 @@ All data comes from in-memory buffers or the current cycle's fetched objects.
 
 from collections import deque
 import math
-from typing import Optional
 
 from kairos.config import settings
 from kairos.models import (
@@ -405,7 +404,6 @@ def consolidate_oi_flow(
     most_common_phase = max(unique_phases, key=phases.count)
 
     phase_is_bearish = most_common_phase in (TrendPhase.SHORT_BUILDUP, TrendPhase.LONG_UNWINDING)
-    phase_is_bullish = most_common_phase in (TrendPhase.LONG_BUILDUP, TrendPhase.SHORT_COVERING)
     phase_is_neutral = most_common_phase == TrendPhase.NEUTRAL
 
     # Determine final score and reason

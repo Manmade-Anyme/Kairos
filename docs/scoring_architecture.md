@@ -18,7 +18,7 @@ Based on the current score and specifically the state of the Implied Volatility 
 **Weight:** 2 Points | **Time Parameter:** 15-Minute Lookback
 **Logic:** Measures whether ATM Implied Volatility (IV) is expanding (inflating) or contracting (deflating). Thresholds are dynamic based on Days To Expiry (DTE) per ADR-011.
 * **Data Source:** Rolling 20-candle IV In-Memory Buffer. Compares `iv_buffer[-1]` against `iv_buffer[-15]`.
-* **Alert Output:** Discord output includes the exact **ATM IV** and the **IV Change %** alongside the trend status (e.g., `+0.48 — IV expanding (DTE≤1) | ATM IV: 10.82 | IV%: +42.96%`).
+* **Alert Output:** Discord output includes the exact **ATM IV** and the **IV Change %** displayed on an indented sub-line beneath the trend status (e.g., `+0.48 — IV expanding (DTE≤1)` with a sub-line `↳ ATM IV: 10.82 | IV%: +42.96%`).
 * **DTE >= 3 (Early Week):** 🟢 > +0.50 | 🟡 > 0.00 | 🔴 Below 0.00
 * **DTE = 2 (Mid-Week):** 🟢 > +0.30 | 🟡 > -0.20 | 🔴 Below -0.20
 * **DTE <= 1 (Expiry):** 🟢 > +0.20 | 🟡 > -0.50 | 🔴 Below -0.50

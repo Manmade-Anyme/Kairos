@@ -5,14 +5,13 @@ Uses Discord webhooks directly — no bot token needed.
 """
 
 from datetime import datetime
-from typing import Optional
 from zoneinfo import ZoneInfo
 
 import httpx
 from loguru import logger
 
 from kairos.config import settings
-from kairos.models import ConditionResult, EnvironmentScore, HealthStatus, OIFlowResult
+from kairos.models import EnvironmentScore, OIFlowResult
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -79,7 +78,7 @@ class Notifier:
     """
 
     def __init__(self) -> None:
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     async def start(self) -> None:
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(10.0))
@@ -98,7 +97,7 @@ class Notifier:
         logger.info(f"📢 Discord Message -> Content: {content_snippet}...")
         
         if not webhook_url or not webhook_url.startswith("http"):
-            logger.error(f"Failed to post to Discord: Webhook URL is invalid or not configured correctly in .env. Skipping.")
+            logger.error("Failed to post to Discord: Webhook URL is invalid or not configured correctly in .env. Skipping.")
             return
             
         if not self._client:
@@ -111,7 +110,7 @@ class Notifier:
                     f"Discord webhook returned {response.status_code}: "
                     f"{response.text[:200]}"
                 )
-        except Exception as e:
+        except httpx.RequestError as e:
             logger.error(f"Failed to post to Discord: {e}")
 
     # ─────────────────────────────────────────────────────────────────────
@@ -137,6 +136,13 @@ class Notifier:
                 # Use compact OI flow line with GEX/NDE/vega tokens
                 oi_detail = _format_oi_flow_line(score.oi_flow_result)
                 condition_lines.append(f"{emoji} {label:<9}: {oi_detail}")
+            elif c.name == "iv_trend" and " | " in c.detail:
+                # Split at ' | ' to separate the core trend from the ATM metrics
+                parts = c.detail.split(" | ")
+                core_trend = parts[0]
+                extra_metrics = " | ".join(parts[1:])
+                condition_lines.append(f"{emoji} {label:<9}: {core_trend} {pts}".rstrip())
+                condition_lines.append(f"             ↳ {extra_metrics}")
             else:
                 condition_lines.append(f"{emoji} {label:<9}: {c.detail} {pts}".rstrip())
 
@@ -164,9 +170,9 @@ class Notifier:
         ]
 
         if score.iv_capped and score.score >= settings.score_go_min:
-            lines.append(f"⚠️ Capped at CAUTION — IV contracting")
+            lines.append("⚠️ Capped at CAUTION — IV contracting")
         elif score.iv_capped:
-            lines.append(f"⚠️ IV contracting — premium at risk")
+            lines.append("⚠️ IV contracting — premium at risk")
 
         # OI Flow reason footer (only on state-change alerts)
         if score.oi_flow_result and score.state_changed:
@@ -226,7 +232,7 @@ class Notifier:
 
     async def post_heartbeat(
         self,
-        last_fetch_time: Optional[datetime],
+        last_fetch_time: datetime | None,
         cycle_count: int,
         symbol: str,
         expiry_str: str,
@@ -244,9 +250,9 @@ class Notifier:
         content = "\n".join([
             "💓 **HEARTBEAT** — System alive",
             "─" * 30,
-            f"Status    : ✅ Fetching normally",
+            "Status    : ✅ Fetching normally",
             f"Last fetch: {fetch_str}",
-            f"API       : ✅ Dhan responding",
+            "API       : ✅ Dhan responding",
             f"Cycle     : {cycle_count} of session",
             "─" * 30,
             f"{symbol} | {expiry_str}",
@@ -279,7 +285,7 @@ class Notifier:
         self,
         error_type: str,
         error_detail: str,
-        last_signal_time: Optional[datetime],
+        last_signal_time: datetime | None,
         action_hint: str,
     ) -> None:
         """
@@ -410,7 +416,7 @@ def _get_version() -> str:
     try:
         from kairos import __version__
         return __version__
-    except Exception:
+    except ImportError:
         return "0.1.0"
 
 

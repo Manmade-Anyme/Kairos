@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Changed
+- **IV Metrics Formatting (`notifier.py`)**:
+  - Extracted ATM IV and IV Change % from the core IV Trend condition result to cleanly display them on an indented sub-line in Discord alerts.
+  - Added TDD verification for the payload structure to ensure strict formatting compliance.
+  - Resolves MANM-77.
 - **OI Flow Calculation Window**:
   - Migrated from a 15-minute anchored block window to a true **15-minute rolling window** to avoid zero-delta resets at block boundaries.
   - Configured `oi_lookback_cycles = 16` (15-minute lookback) and expanded `candle_buffer_size = 20` to support the larger lookback.

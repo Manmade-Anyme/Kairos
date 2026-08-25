@@ -1,15 +1,17 @@
+from datetime import date, datetime, timezone
+
 import pytest
 import respx
-import httpx
-from datetime import datetime, date
-from kairos.notifier import Notifier
-from kairos.models import EnvironmentScore, ConditionResult, SessionConfig
+
 from kairos.config import settings
+from kairos.models import ConditionResult, EnvironmentScore, SessionConfig
+from kairos.notifier import Notifier
+
 
 @pytest.fixture
 def dummy_score():
     return EnvironmentScore(
-        timestamp=datetime.now(),
+        timestamp=datetime.now(timezone.utc),
         symbol="NIFTY",
         expiry=date(2026, 3, 26),
         dte=1,
@@ -95,10 +97,10 @@ async def test_all_notifier_methods():
     await notifier.start()
     
     await notifier.post_warmup_complete("NIFTY")
-    await notifier.post_heartbeat(datetime.now(), 5, "NIFTY", "26 Mar 2026", True)
+    await notifier.post_heartbeat(datetime.now(timezone.utc), 5, "NIFTY", "26 Mar 2026", True)
     await notifier.post_api_warning(3, "Timeout")
-    await notifier.post_critical_alert("Error", "Detail", datetime.now(), "Hint")
-    await notifier.post_stale_signal_warning(datetime.now(), "NIFTY")
+    await notifier.post_critical_alert("Error", "Detail", datetime.now(timezone.utc), "Hint")
+    await notifier.post_stale_signal_warning(datetime.now(timezone.utc), "NIFTY")
     await notifier.post_stopped("NIFTY")
     await notifier.post_session_boundary(True, "Morning")
     
@@ -194,3 +196,81 @@ async def test_iv_cap_just_below_boundary_score(dummy_score):
     assert "⚠️ IV Cap Active" not in content
     assert "⚠️ IV contracting — premium at risk" in content
     assert "⚠️ Capped at CAUTION" not in content
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_post_environment_alert_iv_formatting(dummy_score):
+    route = respx.post(settings.discord_webhook_url).respond(status_code=204)
+    score = dummy_score.model_copy()
+    score.conditions = [
+        ConditionResult(
+            name="iv_trend",
+            status="GREEN",
+            points=2,
+            max_points=2,
+            detail="+0.48 — IV expanding (DTE≤1) | ATM IV: 10.82 | IV%: +42.96%"
+        )
+    ]
+    notifier = Notifier()
+    await notifier.start()
+    await notifier.post_environment_alert(score)
+    await notifier.stop()
+    
+    call = route.calls.last
+    content = call.request.content.decode()
+    
+    # We want it to be cleanly formatted, e.g. placing the [2/2] before the pipe or on a new line.
+    assert "IV expanding (DTE≤1) [2/2]" in content
+    assert "ATM IV: 10.82 | IV%: +42.96%" in content
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_post_environment_alert_generic_condition(dummy_score):
+    route = respx.post(settings.discord_webhook_url).respond(status_code=204)
+    score = dummy_score.model_copy()
+    score.conditions = [
+        ConditionResult(
+            name="generic_test",
+            status="GREEN",
+            points=1,
+            max_points=1,
+            detail="Standard detail without pipe"
+        )
+    ]
+    notifier = Notifier()
+    await notifier.start()
+    await notifier.post_environment_alert(score)
+    await notifier.stop()
+    
+    call = route.calls.last
+    content = call.request.content.decode()
+    
+    assert "Standard detail without pipe" in content
+
+@pytest.mark.asyncio
+async def test_post_with_invalid_webhook_url(dummy_score, monkeypatch):
+    monkeypatch.setattr(settings, "discord_webhook_url", "")
+    notifier = Notifier()
+    await notifier.start()
+    
+    await notifier.post_environment_alert(dummy_score)
+    
+    await notifier.stop()
+
+@pytest.mark.asyncio
+async def test_post_invalid_webhook_url():
+    notifier = Notifier()
+    await notifier.start()
+    
+    # Should safely return without error and log
+    await notifier._post("", {"content": "test"})
+    await notifier._post("invalid_url", {"content": "test"})
+    
+    await notifier.stop()
+
+@pytest.mark.asyncio
+async def test_post_notifier_not_started():
+    notifier = Notifier()
+    # Not calling start()
+    # Should safely return without error and log
+    await notifier._post("http://valid_url", {"content": "test"})

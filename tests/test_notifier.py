@@ -194,3 +194,29 @@ async def test_iv_cap_just_below_boundary_score(dummy_score):
     assert "⚠️ IV Cap Active" not in content
     assert "⚠️ IV contracting — premium at risk" in content
     assert "⚠️ Capped at CAUTION" not in content
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_post_environment_alert_iv_formatting(dummy_score):
+    route = respx.post(settings.discord_webhook_url).respond(status_code=204)
+    score = dummy_score.model_copy()
+    score.conditions = [
+        ConditionResult(
+            name="iv_trend",
+            status="GREEN",
+            points=2,
+            max_points=2,
+            detail="+0.48 — IV expanding (DTE≤1) | ATM IV: 10.82 | IV%: +42.96%"
+        )
+    ]
+    notifier = Notifier()
+    await notifier.start()
+    await notifier.post_environment_alert(score)
+    await notifier.stop()
+    
+    call = route.calls.last
+    content = call.request.content.decode()
+    
+    # We want it to be cleanly formatted, e.g. placing the [2/2] before the pipe or on a new line.
+    assert "IV expanding (DTE≤1) [2/2]" in content
+    assert "ATM IV: 10.82 | IV%: +42.96%" in content

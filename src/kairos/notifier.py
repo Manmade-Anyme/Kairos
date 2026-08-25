@@ -137,6 +137,13 @@ class Notifier:
                 # Use compact OI flow line with GEX/NDE/vega tokens
                 oi_detail = _format_oi_flow_line(score.oi_flow_result)
                 condition_lines.append(f"{emoji} {label:<9}: {oi_detail}")
+            elif c.name == "iv_trend" and " | " in c.detail:
+                # Split at ' | ' to separate the core trend from the ATM metrics
+                parts = c.detail.split(" | ")
+                core_trend = parts[0]
+                extra_metrics = " | ".join(parts[1:])
+                condition_lines.append(f"{emoji} {label:<9}: {core_trend} {pts}".rstrip())
+                condition_lines.append(f"             ↳ {extra_metrics}")
             else:
                 condition_lines.append(f"{emoji} {label:<9}: {c.detail} {pts}".rstrip())
 

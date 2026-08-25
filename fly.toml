@@ -7,7 +7,7 @@ app = 'kairos-yxfydw'
 primary_region = 'bom'
 
 [build]
-
+  builder = "flyio/machines"
 
 
 [[vm]]

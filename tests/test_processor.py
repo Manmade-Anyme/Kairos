@@ -2,7 +2,6 @@ from collections import deque
 from kairos.processor import (
     score_iv_change,
     score_momentum,
-    score_oi_flow,
     score_gamma_theta,
     score_pdhl_breakout,
     score_move_ratio,
@@ -152,3 +151,18 @@ def test_score_vwap_distance_red(make_candle):
 
     res = score_vwap_distance(22500, buf) # 500 pts distance (> 2.0%)
     assert res.status == "RED"
+
+def test_score_iv_change_formatting():
+    buf = deque([10.0] * 15, maxlen=20)
+    buf.append(12.5) # 12.5 - 10.0 = 2.5
+    # iv_then = 10.0, iv_now = 12.5
+    # iv_change_pct = ((12.5 - 10.0) / 10.0) * 100 = 25.0%
+    res = score_iv_change(buf, dte=3)
+    assert "| ATM IV: 12.50 | IV%: +25.00%" in res.detail
+
+def test_score_iv_change_zero_division():
+    buf = deque([0.0] * 15, maxlen=20)
+    buf.append(1.5)
+    # iv_then = 0.0, iv_now = 1.5
+    res = score_iv_change(buf, dte=3)
+    assert "| ATM IV: 1.50 | IV%: +0.00%" in res.detail

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Changed
+- **Fly.io Deploy: Local Build & Multi-Stage Dockerfile (`fly-deploy.yml`, `Dockerfile`, `.dockerignore`):**
+  - Removed `--remote-only` flag from `flyctl deploy` to switch to local build (Depot remote builder was timing out).
+  - Switched Dockerfile to multi-stage build (builder + runtime stages) for a smaller final image.
+  - Expanded `.dockerignore` to exclude `CLAUDE.md` and `LICENSE` from build context.
+  - Added `cancel-in-progress: true` to GitHub Actions concurrency config to avoid stacking queued deploys.
+  - Resolves MANM-78.
 - **IV Metrics Formatting (`notifier.py`)**:
   - Extracted ATM IV and IV Change % from the core IV Trend condition result to cleanly display them on an indented sub-line in Discord alerts.
   - Added TDD verification for the payload structure to ensure strict formatting compliance.

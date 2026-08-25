@@ -5,7 +5,6 @@ Uses Discord webhooks directly — no bot token needed.
 """
 
 from datetime import datetime
-from typing import Optional
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -79,7 +78,7 @@ class Notifier:
     """
 
     def __init__(self) -> None:
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     async def start(self) -> None:
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(10.0))
@@ -111,7 +110,7 @@ class Notifier:
                     f"Discord webhook returned {response.status_code}: "
                     f"{response.text[:200]}"
                 )
-        except Exception as e:
+        except httpx.RequestError as e:
             logger.error(f"Failed to post to Discord: {e}")
 
     # ─────────────────────────────────────────────────────────────────────
@@ -233,7 +232,7 @@ class Notifier:
 
     async def post_heartbeat(
         self,
-        last_fetch_time: Optional[datetime],
+        last_fetch_time: datetime | None,
         cycle_count: int,
         symbol: str,
         expiry_str: str,
@@ -286,7 +285,7 @@ class Notifier:
         self,
         error_type: str,
         error_detail: str,
-        last_signal_time: Optional[datetime],
+        last_signal_time: datetime | None,
         action_hint: str,
     ) -> None:
         """
@@ -417,7 +416,7 @@ def _get_version() -> str:
     try:
         from kairos import __version__
         return __version__
-    except Exception:
+    except ImportError:
         return "0.1.0"
 
 

@@ -1,14 +1,17 @@
+from datetime import date, datetime, timezone
+
 import pytest
 import respx
-from datetime import datetime, date
-from kairos.notifier import Notifier
-from kairos.models import EnvironmentScore, ConditionResult, SessionConfig
+
 from kairos.config import settings
+from kairos.models import ConditionResult, EnvironmentScore, SessionConfig
+from kairos.notifier import Notifier
+
 
 @pytest.fixture
 def dummy_score():
     return EnvironmentScore(
-        timestamp=datetime.now(),
+        timestamp=datetime.now(timezone.utc),
         symbol="NIFTY",
         expiry=date(2026, 3, 26),
         dte=1,
@@ -94,10 +97,10 @@ async def test_all_notifier_methods():
     await notifier.start()
     
     await notifier.post_warmup_complete("NIFTY")
-    await notifier.post_heartbeat(datetime.now(), 5, "NIFTY", "26 Mar 2026", True)
+    await notifier.post_heartbeat(datetime.now(timezone.utc), 5, "NIFTY", "26 Mar 2026", True)
     await notifier.post_api_warning(3, "Timeout")
-    await notifier.post_critical_alert("Error", "Detail", datetime.now(), "Hint")
-    await notifier.post_stale_signal_warning(datetime.now(), "NIFTY")
+    await notifier.post_critical_alert("Error", "Detail", datetime.now(timezone.utc), "Hint")
+    await notifier.post_stale_signal_warning(datetime.now(timezone.utc), "NIFTY")
     await notifier.post_stopped("NIFTY")
     await notifier.post_session_boundary(True, "Morning")
     
@@ -243,3 +246,13 @@ async def test_post_environment_alert_generic_condition(dummy_score):
     content = call.request.content.decode()
     
     assert "Standard detail without pipe" in content
+
+@pytest.mark.asyncio
+async def test_post_with_invalid_webhook_url(dummy_score, monkeypatch):
+    monkeypatch.setattr(settings, "discord_webhook_url", "")
+    notifier = Notifier()
+    await notifier.start()
+    
+    await notifier.post_environment_alert(dummy_score)
+    
+    await notifier.stop()

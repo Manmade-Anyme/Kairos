@@ -15,20 +15,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
-      - name: Deploy to Fly.io (with retry)
+      - run: flyctl deploy --local-only
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-        run: |
-          for attempt in 1 2 3; do
-            echo "Deploy attempt $attempt/3"
-            if flyctl deploy; then
-              echo "Deploy succeeded on attempt $attempt"
-              exit 0
-            fi
-            if [ "$attempt" -lt 3 ]; then
-              echo "Deploy failed on attempt $attempt, retrying in 30s..."
-              sleep 30
-            fi
-          done
-          echo "Deploy failed after 3 attempts"
-          exit 1

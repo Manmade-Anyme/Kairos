@@ -12,7 +12,7 @@ import httpx
 from loguru import logger
 
 from kairos.config import settings
-from kairos.models import ConditionResult, EnvironmentScore, HealthStatus, OIFlowResult
+from kairos.models import EnvironmentScore, OIFlowResult
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -98,7 +98,7 @@ class Notifier:
         logger.info(f"📢 Discord Message -> Content: {content_snippet}...")
         
         if not webhook_url or not webhook_url.startswith("http"):
-            logger.error(f"Failed to post to Discord: Webhook URL is invalid or not configured correctly in .env. Skipping.")
+            logger.error("Failed to post to Discord: Webhook URL is invalid or not configured correctly in .env. Skipping.")
             return
             
         if not self._client:
@@ -171,9 +171,9 @@ class Notifier:
         ]
 
         if score.iv_capped and score.score >= settings.score_go_min:
-            lines.append(f"⚠️ Capped at CAUTION — IV contracting")
+            lines.append("⚠️ Capped at CAUTION — IV contracting")
         elif score.iv_capped:
-            lines.append(f"⚠️ IV contracting — premium at risk")
+            lines.append("⚠️ IV contracting — premium at risk")
 
         # OI Flow reason footer (only on state-change alerts)
         if score.oi_flow_result and score.state_changed:
@@ -251,9 +251,9 @@ class Notifier:
         content = "\n".join([
             "💓 **HEARTBEAT** — System alive",
             "─" * 30,
-            f"Status    : ✅ Fetching normally",
+            "Status    : ✅ Fetching normally",
             f"Last fetch: {fetch_str}",
-            f"API       : ✅ Dhan responding",
+            "API       : ✅ Dhan responding",
             f"Cycle     : {cycle_count} of session",
             "─" * 30,
             f"{symbol} | {expiry_str}",

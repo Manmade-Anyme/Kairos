@@ -1,6 +1,5 @@
 import pytest
 import respx
-import httpx
 from datetime import datetime, date
 from kairos.notifier import Notifier
 from kairos.models import EnvironmentScore, ConditionResult, SessionConfig
@@ -220,3 +219,27 @@ async def test_post_environment_alert_iv_formatting(dummy_score):
     # We want it to be cleanly formatted, e.g. placing the [2/2] before the pipe or on a new line.
     assert "IV expanding (DTE≤1) [2/2]" in content
     assert "ATM IV: 10.82 | IV%: +42.96%" in content
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_post_environment_alert_generic_condition(dummy_score):
+    route = respx.post(settings.discord_webhook_url).respond(status_code=204)
+    score = dummy_score.model_copy()
+    score.conditions = [
+        ConditionResult(
+            name="generic_test",
+            status="GREEN",
+            points=1,
+            max_points=1,
+            detail="Standard detail without pipe"
+        )
+    ]
+    notifier = Notifier()
+    await notifier.start()
+    await notifier.post_environment_alert(score)
+    await notifier.stop()
+    
+    call = route.calls.last
+    content = call.request.content.decode()
+    
+    assert "Standard detail without pipe" in content

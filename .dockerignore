@@ -18,3 +18,5 @@ execution/
 *.md
 !README.md
 .gitignore
+CLAUDE.md
+LICENSE

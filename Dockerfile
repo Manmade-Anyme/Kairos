@@ -1,18 +1,17 @@
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+
+COPY pyproject.toml ./
+COPY src/ ./src/
+
+RUN pip install --no-cache-dir .
+
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install build dependencies if needed
-# RUN apt-get update && apt-get install -y gcc ...
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
-# Copy project configuration
-COPY pyproject.toml ./
-
-# Copy the application source code
-COPY src/ ./src/
-
-# Install the application and its dependencies
-RUN pip install --no-cache-dir .
-
-# Command to run the application
 CMD ["python", "-m", "kairos.scheduler"]

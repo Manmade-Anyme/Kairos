@@ -9,7 +9,9 @@ jobs:
   deploy:
     name: Deploy app
     runs-on: ubuntu-latest
-    concurrency: deploy-group    # optional: ensure only one action runs at a time
+    concurrency:
+      group: deploy-group
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
@@ -19,7 +21,7 @@ jobs:
         run: |
           for attempt in 1 2 3; do
             echo "Deploy attempt $attempt/3"
-            if flyctl deploy --remote-only; then
+            if flyctl deploy; then
               echo "Deploy succeeded on attempt $attempt"
               exit 0
             fi

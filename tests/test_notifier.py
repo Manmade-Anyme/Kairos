@@ -256,3 +256,21 @@ async def test_post_with_invalid_webhook_url(dummy_score, monkeypatch):
     await notifier.post_environment_alert(dummy_score)
     
     await notifier.stop()
+
+@pytest.mark.asyncio
+async def test_post_invalid_webhook_url():
+    notifier = Notifier()
+    await notifier.start()
+    
+    # Should safely return without error and log
+    await notifier._post("", {"content": "test"})
+    await notifier._post("invalid_url", {"content": "test"})
+    
+    await notifier.stop()
+
+@pytest.mark.asyncio
+async def test_post_notifier_not_started():
+    notifier = Notifier()
+    # Not calling start()
+    # Should safely return without error and log
+    await notifier._post("http://valid_url", {"content": "test"})

@@ -422,17 +422,16 @@ def consolidate_oi_flow(
         warmup = latest.model_copy(update={"score": 0, "reason": "Warming up"})
         return _result("oi_flow", "YELLOW", 0, 1, warmup.reason), warmup
 
-    latest_direction = _phase_direction(latest.phase)
-    if latest.vega_trap:
-        current_failure = "Vega trap active"
-    elif latest.gex_state == "pin":
-        current_failure = "GEX pin active"
-    elif latest_direction is None:
-        current_failure = "Neutral or ineligible OI phase"
-    elif latest.stale:
+    if latest.stale:
         current_failure = "Stale OI observation"
     elif not latest.data_valid:
         current_failure = "Invalid OI data"
+    elif latest.vega_trap:
+        current_failure = "Vega trap active"
+    elif latest.gex_state == "pin":
+        current_failure = "GEX pin active"
+    elif _phase_direction(latest.phase) is None:
+        current_failure = "Neutral or ineligible OI phase"
     elif latest.nde_state != "confirms":
         current_failure = "NDE does not confirm the current direction"
     elif latest.effective_veto or latest.score == 0:
@@ -452,8 +451,11 @@ def consolidate_oi_flow(
         )
         return _result("oi_flow", "RED", 0, 1, reason), consolidated
 
+    latest_direction = _phase_direction(latest.phase)
     vega_trap_count = sum(
-        1 for reading in buffer if reading.vega_trap and not reading.stale
+        1
+        for reading in buffer
+        if reading.data_valid and not reading.stale and reading.vega_trap
     )
     if vega_trap_count >= settings.oi_consensus_trap_threshold:
         reason = (

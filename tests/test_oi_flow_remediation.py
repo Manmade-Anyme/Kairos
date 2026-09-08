@@ -129,6 +129,70 @@ def test_current_stale_reading_reports_staleness_before_invalid_data():
     assert result.reason.startswith("Current Stale OI observation")
 
 
+def test_invalid_latest_reading_precedes_derived_vetoes():
+    history = deque(
+        [
+            _reading(
+                TrendPhase.NEUTRAL,
+                score=0,
+                gex_state="pin",
+                vega_trap=True,
+                data_valid=False,
+            )
+        ],
+        maxlen=8,
+    )
+
+    _, result = consolidate_oi_flow(history)
+
+    assert result.reason.startswith("Current Invalid OI data")
+
+
+def test_stale_latest_reading_precedes_derived_vetoes():
+    history = deque(
+        [
+            _reading(
+                TrendPhase.NEUTRAL,
+                score=0,
+                gex_state="pin",
+                vega_trap=True,
+                stale=True,
+            )
+        ],
+        maxlen=8,
+    )
+
+    _, result = consolidate_oi_flow(history)
+
+    assert result.reason.startswith("Current Stale OI observation")
+
+
+def test_invalid_trap_duplicates_do_not_create_a_recovery_hold():
+    history = deque(
+        [
+            _reading(TrendPhase.LONG_BUILDUP, score=0, vega_trap=True),
+            _reading(
+                TrendPhase.LONG_BUILDUP,
+                score=0,
+                vega_trap=True,
+                data_valid=False,
+            ),
+            _reading(
+                TrendPhase.LONG_BUILDUP,
+                score=0,
+                vega_trap=True,
+                data_valid=False,
+            ),
+        ]
+        + [_reading(TrendPhase.LONG_BUILDUP) for _ in range(5)],
+        maxlen=8,
+    )
+
+    condition, _ = consolidate_oi_flow(history)
+
+    assert condition.status == "GREEN"
+
+
 def test_valid_neutral_gex_can_qualify_when_nde_confirms(make_cluster, make_candle):
     cluster = make_cluster(
         22000,

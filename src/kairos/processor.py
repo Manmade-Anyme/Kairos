@@ -429,10 +429,10 @@ def consolidate_oi_flow(
         current_failure = "GEX pin active"
     elif latest_direction is None:
         current_failure = "Neutral or ineligible OI phase"
-    elif not latest.data_valid:
-        current_failure = "Invalid OI data"
     elif latest.stale:
         current_failure = "Stale OI observation"
+    elif not latest.data_valid:
+        current_failure = "Invalid OI data"
     elif latest.nde_state != "confirms":
         current_failure = "NDE does not confirm the current direction"
     elif latest.effective_veto or latest.score == 0:

@@ -519,6 +519,12 @@ async def run_cycle() -> None:
 
     oi_fingerprint = None
     if oi_result:
+        if oi_result.reason.startswith("Mixed signals — directional consensus not met"):
+            oi_reason_category = "directional consensus not met"
+        elif oi_result.reason.startswith("Historical recovery hold"):
+            oi_reason_category = "historical recovery hold"
+        else:
+            oi_reason_category = oi_result.reason
         oi_fingerprint = (
             oi_result.score,
             oi_result.phase.value,
@@ -528,7 +534,7 @@ async def run_cycle() -> None:
             oi_result.data_valid,
             oi_result.stale,
             oi_result.effective_veto,
-            oi_result.reason,
+            oi_reason_category,
         )
     oi_event_changed = oi_fingerprint != state.last_oi_event_fingerprint
 

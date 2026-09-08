@@ -14,6 +14,7 @@ def _reading(
     gex_state: str = "trend",
     nde_state: str = "confirms",
     vega_trap: bool = False,
+    data_valid: bool = True,
     stale: bool = False,
 ) -> OIFlowResult:
     return OIFlowResult(
@@ -23,6 +24,7 @@ def _reading(
         gex_state=gex_state,
         nde_state=nde_state,
         vega_trap=vega_trap,
+        data_valid=data_valid,
         stale=stale,
         pcr=1.0,
         iv_skew=0.0,
@@ -114,6 +116,17 @@ def test_stale_trap_duplicates_do_not_create_a_recovery_hold():
     condition, _ = consolidate_oi_flow(history)
 
     assert condition.status == "GREEN"
+
+
+def test_current_stale_reading_reports_staleness_before_invalid_data():
+    history = deque(
+        [_reading(TrendPhase.LONG_BUILDUP, score=0, data_valid=False, stale=True)],
+        maxlen=8,
+    )
+
+    _, result = consolidate_oi_flow(history)
+
+    assert result.reason.startswith("Current Stale OI observation")
 
 
 def test_valid_neutral_gex_can_qualify_when_nde_confirms(make_cluster, make_candle):

@@ -259,6 +259,52 @@ async def test_run_cycle_alerts_changed_oi_veto_below_six_once(mock_deps, mocker
 
 
 @pytest.mark.asyncio
+async def test_run_cycle_silences_diagnostic_consensus_vote_changes(mock_deps, mocker):
+    """Vote-count diagnostics must not be semantic OI alert events."""
+    import kairos.scheduler as sched
+
+    sched.state.reset_buffers()
+    sched.state.startup_done = True
+    sched.state.in_session = True
+    sched.state.warmup_complete = True
+    sched.state.active_config = SessionConfig(
+        symbol="NIFTY", expiry=date.today(), expiry_type="WEEKLY", status="ACTIVE"
+    )
+    sched.state.prev_levels = MagicMock()
+    sched.state.previous_status = "AVOID"
+    mocker.patch("kairos.scheduler.is_active_session", return_value=True)
+    sched.db.get_active_session.return_value = sched.state.active_config
+    sched.fetcher.get_option_chain.return_value = []
+    sched.fetcher.get_latest_candle.return_value = MagicMock(close=22000)
+
+    def consensus_score(votes: int) -> EnvironmentScore:
+        reason = f"Mixed signals — directional consensus not met ({votes}/8 matching green cycles)"
+        oi_result = OIFlowResult(
+            score=0,
+            phase=TrendPhase.LONG_BUILDUP,
+            reason=reason,
+            gex_state="trend",
+            nde_state="confirms",
+            vega_trap=False,
+            pcr=1.0,
+            iv_skew=0.0,
+        )
+        return EnvironmentScore(
+            timestamp=datetime.now(), symbol="NIFTY", expiry=date.today(), dte=1,
+            score=3, status="AVOID", conditions=[
+                ConditionResult(name="oi_flow", status="RED", points=0, max_points=1, detail=reason)
+            ], summary_raw="raw", previous_status="AVOID", oi_flow_result=oi_result,
+        )
+
+    sched.evaluate.side_effect = [consensus_score(votes) for votes in range(1, 5)]
+
+    for _ in range(4):
+        await run_cycle()
+
+    assert sched.notifier.post_environment_alert.await_count == 2
+
+
+@pytest.mark.asyncio
 async def test_run_cycle_oi_veto_caps_go_even_with_yellow_iv(mock_deps, mocker):
     """An OI veto must survive the scheduler's IV hysteresis path."""
     import kairos.scheduler as sched

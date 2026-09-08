@@ -58,8 +58,9 @@ The engine evaluates the following metrics in a strict hierarchy. If any high-pr
     *   **Trigger:** High Theta Burn Rate WITHOUT confirming NDE momentum.
     *   **Result:** 🔴 RED (0 Pts). Time decay is the dominant force; professional writers are in control.
 5.  **Directional Phase Mapping (Unified Conviction):**
-    *   **GREEN (1 Pt):** Any existing eligible directional phase, valid GEX trend or neutral, and NDE confirmation. PCR is passive telemetry only.
-    *   **RED (0 Pts):** Neutral phases, invalid/stale Greek data, GEX pins, and unconfirmed NDE. Short Covering and Long Unwinding remain eligible per TASK-103 despite the older checklist's buildup-only guidance.
+    *   **GREEN (1 Pt):** Any existing eligible directional phase (including Short Covering and Long Unwinding per TASK-103, overriding the older buildup-only checklist), valid GEX trend or neutral, and NDE confirmation. PCR is passive telemetry only.
+    *   **RED (0 Pts):** Neutral phases, invalid/stale Greek data, GEX pins, and unconfirmed NDE.
+
 
 | Metric | Threshold (Dynamic Default) | Role |
 |---|---|---|

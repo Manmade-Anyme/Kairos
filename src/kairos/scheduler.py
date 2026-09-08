@@ -560,8 +560,10 @@ async def run_cycle() -> None:
     if (score.state_changed or just_warmed_up or significant_change or oi_event_changed) and state.warmup_complete:
         should_alert = oi_event_changed
 
-        if not should_alert and score.score >= 6:
+        if score.score >= 6:
             state.is_silenced = False
+
+        if not should_alert and score.score >= 6:
             should_alert = True
         elif not should_alert and not state.is_silenced:
             state.is_silenced = True

@@ -492,7 +492,7 @@ def consolidate_oi_flow(
     else:
         reason = (
             f"Mixed signals — directional consensus not met "
-            f"({matching_votes}/{len(buffer)} matching green cycles)"
+            f"({matching_votes}/{len(buffer)} matching green cycles) (NO TRADE)"
         )
         score_val = 0
 

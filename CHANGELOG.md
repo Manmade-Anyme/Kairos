@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - **MANM-103 OI Flow remediation:** made consensus current-first and direction-matched, removed PCR from trade gates, validated the complete active Greek strike grid, corrected Vega exposure normalization, capped GO on effective OI vetoes (including failed consensus), and emitted deduplicated OI events below the score-silencing threshold while retaining the first non-OI low-score transition alert. Preserve incomplete ATM rows for invalid-data gating, validate Greeks only in active scoring strikes, reject repeated or regressed timestamps, retain raw invalid-veto reasons, reject stale/invalid observations before derived vetoes, ignore stale or invalid samples in historical Vega-trap counts, and fingerprint semantic OI categories without diagnostic vote counts. Documented the explicit policy that Short Covering and Long Unwinding remain eligible (overriding the legacy buildup-only checklist).
+- **OI Flow Filter Remediation (Round 8):** Reset `state.is_silenced = False` on every cycle where score is >= 6 to ensure subsequent drops below 6 properly trigger their first transition alert. Appended `(NO TRADE)` to the failed directional consensus reason per ADR-103.
 
 ### Changed
 - **Fly.io Deploy: Local Build & Multi-Stage Dockerfile (`fly-deploy.yml`, `Dockerfile`, `.dockerignore`):**

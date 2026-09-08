@@ -77,7 +77,8 @@ def test_score_oi_flow_warmup(make_cluster):
     # Insufficient candles for oi_lookback_cycles (6)
     res_cond, res_oi = score_oi_flow(make_cluster(22000), 0.0, deque())
     assert res_cond.status == "YELLOW"
-    assert res_oi.reason == "Warming up"
+    assert "NO TRADE" in res_oi.reason
+    assert res_oi.effective_veto is True
 
 def test_score_oi_flow_vega_trap(make_cluster, make_candle):
     cluster = make_cluster(22000, ce_oi_change=10000, pe_oi_change=10000)

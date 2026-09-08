@@ -85,6 +85,10 @@ All notable changes to this project will be documented in this file.
   - Documented in `directives/adr/ADR-013_lunch_break_alert.md`.
 
 ### Fixed
+- **OI Flow Warmup State — Cap Tradeable Status (`processor.py`, `engine.py`):**
+  - Root cause: Warmup branches in `score_oi_flow` and `consolidate_oi_flow` previously emitted `effective_veto=False`. This allowed the scoring engine to emit a tradeable `GO` state if the other six conditions generated a 7/8 score while OI was still warming up (e.g. cycle 15 where IV needs 15 but OI needs 16).
+  - Fix: Enforced `effective_veto=True` on all warmup `OIFlowResult` branches and appended `— NO TRADE` to the veto reasons. This ensures that any `GO` score achieved during warmup is correctly capped to `CAUTION`.
+  - Added regression tests verifying the `effective_veto` cap logic.
 - **IV Flickering — Anti-Flap Hysteresis (`scheduler.py`, `config.py`):**
   - Root cause: Tiny fluctuations in IV change around zero caused the IV cap to toggle on/off every minute, resulting in an alternating `AVOID`→`CAUTION` status loop.
   - Fix: Implemented hysteresis logic where the IV cap, once triggered, is only released if IV recovers by `>= 0.30`.

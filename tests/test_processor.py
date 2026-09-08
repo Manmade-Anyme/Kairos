@@ -166,3 +166,33 @@ def test_score_iv_change_zero_division():
     # iv_then = 0.0, iv_now = 1.5
     res = score_iv_change(buf, dte=3)
     assert "| ATM IV: 1.50 | IV%: +0.00%" in res.detail
+
+def test_warmup_effective_veto_enforced(make_cluster):
+    """
+    Verify that during OI warmup, effective_veto=True is enforced.
+    This helps cap an otherwise 7/8 score from GO to CAUTION in evaluate().
+    """
+    from kairos.processor import score_oi_flow, consolidate_oi_flow
+    from collections import deque
+    
+    # Empty buffer (less than lookback) triggers warmup
+    res_cond, res_oi = score_oi_flow(make_cluster(22000), 0.0, deque())
+    assert res_cond.status == "YELLOW"
+    assert res_oi.warmup is True
+    assert res_oi.effective_veto is True
+    assert "NO TRADE" in res_oi.veto_reason
+    assert res_oi.score == 0
+    
+    # Same for consolidate empty buffer fallback
+    c_cond, c_oi = consolidate_oi_flow(deque())
+    assert c_cond.status == "YELLOW"
+    assert c_oi.effective_veto is True
+    assert "NO TRADE" in c_oi.veto_reason
+    assert c_oi.score == 0
+    
+    # Same for consolidate latest warmup
+    c_cond2, c_oi2 = consolidate_oi_flow(deque([res_oi]))
+    assert c_cond2.status == "YELLOW"
+    assert c_oi2.effective_veto is True
+    assert "NO TRADE" in c_oi2.veto_reason
+    assert c_oi2.score == 0

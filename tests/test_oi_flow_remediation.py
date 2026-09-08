@@ -372,3 +372,63 @@ def test_bounded_oi_buffer_rejects_nine_identical_or_regressed_timestamps(
 
     assert scores[0].oi_flow_result.stale is False
     assert all(score.oi_flow_result.stale for score in scores[1:])
+
+def test_warmup_caps_score_to_caution(make_option_row, make_candle, mock_now, mock_date, monkeypatch):
+    """
+    Verify that during OI warmup, effective_veto=True is enforced 
+    and caps an otherwise 7/8 score from GO to CAUTION.
+    """
+    from kairos.engine import evaluate
+    from kairos.models import SessionConfig, PreviousDayLevels, ConditionResult
+    
+    # Mock all other score functions to return GREEN with max points so total sum is 7/8
+    # c1_iv (1), c2_mom (1), c4_gt (2), c5_pdhl (1), c6_move (1), c7_vwap (1) -> total 7
+    monkeypatch.setattr("kairos.engine.score_iv_change", lambda *args, **kwargs: ConditionResult(name="iv", status="GREEN", points=1, max_points=1, detail=""))
+    monkeypatch.setattr("kairos.engine.score_momentum", lambda *args, **kwargs: ConditionResult(name="mom", status="GREEN", points=1, max_points=1, detail=""))
+    monkeypatch.setattr("kairos.engine.score_gamma_theta", lambda *args, **kwargs: ConditionResult(name="gt", status="GREEN", points=2, max_points=2, detail=""))
+    monkeypatch.setattr("kairos.engine.score_pdhl_breakout", lambda *args, **kwargs: ConditionResult(name="pdhl", status="GREEN", points=1, max_points=1, detail=""))
+    monkeypatch.setattr("kairos.engine.score_move_ratio", lambda *args, **kwargs: ConditionResult(name="move", status="GREEN", points=1, max_points=1, detail=""))
+    monkeypatch.setattr("kairos.engine.score_vwap_distance", lambda *args, **kwargs: ConditionResult(name="vwap", status="GREEN", points=1, max_points=1, detail=""))
+    monkeypatch.setattr("kairos.processor.settings.oi_lookback_cycles", 16)
+    monkeypatch.setattr("kairos.engine.settings.oi_lookback_cycles", 16)
+
+    config = SessionConfig(
+        symbol="NIFTY",
+        expiry=mock_date,
+        expiry_type="WEEKLY",
+        status="ACTIVE",
+        iv_change_lookback=15,
+        oi_lookback_cycles=16,  # requires 16 for warmup
+    )  
+    
+    # 15 candles so IV lookback passes but OI lookback (16) fails, triggering warmup
+    candle_buffer = deque([make_candle(22000)] * 15, maxlen=30)
+    iv_buffer = deque([0.15] * 15, maxlen=30)
+    
+    chain = [make_option_row(22000, "CE"), make_option_row(22000, "PE")]
+    prev_levels = PreviousDayLevels(
+        symbol="NIFTY",
+        trade_date=mock_date,
+        prev_day_high=22100.0,
+        prev_day_low=21900.0,
+        fetched_at=mock_now,
+    )
+
+    result = evaluate(
+        chain,
+        candle_buffer,
+        iv_buffer,
+        prev_levels,
+        22000.0,
+        1,
+        config,
+        oi_flow_buffer=deque(maxlen=8),
+    )
+
+    # Validate the OI condition is in warmup
+    assert result.oi_flow_result.warmup is True
+    assert result.oi_flow_result.effective_veto is True
+    assert "NO TRADE" in result.oi_flow_result.veto_reason
+    assert result.score == 7
+    # Verify the cap
+    assert result.status == "CAUTION"

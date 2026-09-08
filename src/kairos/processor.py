@@ -222,11 +222,12 @@ def score_oi_flow(
     """
     lookback = settings.oi_lookback_cycles
     if len(candle_buffer) < lookback:
-        warmup_result = _caution("oi_flow", 1, f"Warming up — {lookback} candles needed for trend phase")
+        reason = f"Warming up — {lookback} candles needed for trend phase — NO TRADE"
+        warmup_result = _caution("oi_flow", 1, reason)
         warmup_oi = OIFlowResult(
             score=0,
             phase=TrendPhase.NEUTRAL,
-            reason="Warming up",
+            reason=reason,
             gex_state="neutral",
             nde_state="neutral",
             vega_trap=False,
@@ -240,6 +241,8 @@ def score_oi_flow(
             ce_unwind_below_spot=cluster.ce_unwind_below_spot,
             data_valid=False,
             warmup=True,
+            effective_veto=True,
+            veto_reason=reason,
         )
         return warmup_result, warmup_oi
 
@@ -403,23 +406,32 @@ def consolidate_oi_flow(
     """
     if not buffer:
         # Fallback if buffer is empty
+        fallback_reason = "Warming up — NO TRADE"
         fallback_oi = OIFlowResult(
             score=0,
             phase=TrendPhase.NEUTRAL,
-            reason="Warming up",
+            reason=fallback_reason,
             gex_state="neutral",
             nde_state="neutral",
             vega_trap=False,
             pcr=1.0,
             iv_skew=0.0,
+            effective_veto=True,
+            veto_reason=fallback_reason,
         )
-        fallback_cond = _result("oi_flow", "YELLOW", 0, 1, "Warming up")
+        fallback_cond = _result("oi_flow", "YELLOW", 0, 1, fallback_reason)
         return fallback_cond, fallback_oi
 
     # The latest reading is the current risk and display snapshot.
     latest = buffer[-1]
     if latest.warmup:
-        warmup = latest.model_copy(update={"score": 0, "reason": "Warming up"})
+        warmup_reason = latest.veto_reason or "Warming up — NO TRADE"
+        warmup = latest.model_copy(update={
+            "score": 0,
+            "reason": warmup_reason,
+            "effective_veto": True,
+            "veto_reason": warmup_reason,
+        })
         return _result("oi_flow", "YELLOW", 0, 1, warmup.reason), warmup
 
     if latest.stale:

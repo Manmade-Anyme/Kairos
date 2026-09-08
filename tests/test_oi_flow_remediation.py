@@ -162,6 +162,18 @@ def test_vega_denominator_uses_the_wider_main_window(make_option_row):
     assert aggregates["atm_vega_exposure"] < aggregates["total_abs_vega"]
 
 
+def test_zero_weight_nonfinite_greeks_do_not_invalidate_active_window(make_option_row):
+    chain = [
+        make_option_row(22000, "CE", delta=0.5, gamma=0.2, vega=1.0, oi=1000),
+        make_option_row(22000, "PE", delta=-0.5, gamma=0.2, vega=1.0, oi=1000),
+        make_option_row(23000, "CE", delta=float("nan"), gamma=0.2, vega=1.0, oi=1000),
+    ]
+
+    aggregates = compute_greeks_aggregates(chain, 22000, 22000, 50.0, 65)
+
+    assert aggregates["data_valid"] is True
+
+
 def test_zero_vega_denominator_is_invalid_data(make_option_row):
     chain = [
         make_option_row(22000, "CE", gamma=0.2, delta=0.5, vega=0.0),

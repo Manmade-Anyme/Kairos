@@ -511,11 +511,12 @@ async def run_cycle() -> None:
 
     # Detect significant changes: Status, Color, or OI Phase shifts (ADR-017)
     significant_change = False
-    current_oi_phase = None
+    current_oi_phase = oi_result.phase.value if oi_result else None
 
-    for c in score.conditions:
-        if c.name == "oi_flow":
-            current_oi_phase = c.detail.split('|')[0].strip() if '|' in c.detail else c.detail
+    if current_oi_phase is None:
+        for c in score.conditions:
+            if c.name == "oi_flow":
+                current_oi_phase = c.detail.split('|')[0].strip() if '|' in c.detail else c.detail
 
     oi_fingerprint = None
     if oi_result:
@@ -523,6 +524,8 @@ async def run_cycle() -> None:
             oi_reason_category = "directional consensus not met"
         elif oi_result.reason.startswith("Historical recovery hold"):
             oi_reason_category = "historical recovery hold"
+        elif oi_result.reason.startswith("Unified ") and " conviction (Consensus " in oi_result.reason:
+            oi_reason_category = "directional consensus"
         else:
             oi_reason_category = oi_result.reason
         oi_fingerprint = (
@@ -560,7 +563,7 @@ async def run_cycle() -> None:
         if not should_alert and score.score >= 6:
             state.is_silenced = False
             should_alert = True
-        elif not should_alert:
+        elif not should_alert and not (oi_result and not oi_event_changed):
             if not state.is_silenced:
                 state.is_silenced = True
                 should_alert = True

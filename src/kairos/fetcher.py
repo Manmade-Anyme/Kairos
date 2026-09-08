@@ -206,13 +206,14 @@ class DhanFetcher:
                 if not side:
                     continue
                 greeks = side.get("greeks")
-                if (
+                greeks_complete = not (
                     "implied_volatility" not in side
                     or not isinstance(greeks, dict)
                     or any(field not in greeks for field in ("delta", "gamma", "theta", "vega"))
-                ):
-                    logger.warning(f"Skipping row with missing Greeks for strike {strike_str}")
-                    continue
+                )
+                if not greeks_complete:
+                    logger.warning(f"Preserving row with missing Greeks for strike {strike_str}")
+                greek_values = greeks if isinstance(greeks, dict) else {}
                 try:
                     raw_oi = int(side.get("oi", 0))
                     raw_prev_oi = int(side.get("previous_oi", 0))
@@ -222,11 +223,11 @@ class DhanFetcher:
                         expiry=expiry,
                         strike=strike,
                         option_type=opt_type,
-                        iv=float(side["implied_volatility"]),
-                        delta=float(greeks["delta"]),
-                        gamma=float(greeks["gamma"]),
-                        theta=float(greeks["theta"]),
-                        vega=float(greeks["vega"]),
+                        iv=float(side.get("implied_volatility", 0.0)),
+                        delta=float(greek_values.get("delta", 0.0)),
+                        gamma=float(greek_values.get("gamma", 0.0)),
+                        theta=float(greek_values.get("theta", 0.0)),
+                        vega=float(greek_values.get("vega", 0.0)),
                         oi=raw_oi,
                         previous_oi=raw_prev_oi,
                         oi_change=0,
@@ -234,6 +235,7 @@ class DhanFetcher:
                         ltp=float(side.get("last_price", 0.0)),
                         bid=float(side.get("top_bid_price", 0.0)),
                         ask=float(side.get("top_ask_price", 0.0)),
+                        greeks_complete=greeks_complete,
                     ))
                 except Exception as e:
                     logger.warning(f"Skipping malformed row for strike {strike_str}: {e}")

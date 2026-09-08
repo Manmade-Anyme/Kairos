@@ -301,7 +301,53 @@ async def test_run_cycle_silences_diagnostic_consensus_vote_changes(mock_deps, m
     for _ in range(4):
         await run_cycle()
 
-    assert sched.notifier.post_environment_alert.await_count == 2
+    assert sched.notifier.post_environment_alert.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_deduplicates_successful_consensus_vote_changes(mock_deps, mocker):
+    """Successful 5/8-to-8/8 diagnostics are one semantic OI event."""
+    import kairos.scheduler as sched
+
+    sched.state.reset_buffers()
+    sched.state.startup_done = True
+    sched.state.in_session = True
+    sched.state.warmup_complete = True
+    sched.state.active_config = SessionConfig(
+        symbol="NIFTY", expiry=date.today(), expiry_type="WEEKLY", status="ACTIVE"
+    )
+    sched.state.prev_levels = MagicMock()
+    sched.state.previous_status = "GO"
+    mocker.patch("kairos.scheduler.is_active_session", return_value=True)
+    sched.db.get_active_session.return_value = sched.state.active_config
+    sched.fetcher.get_option_chain.return_value = []
+    sched.fetcher.get_latest_candle.return_value = MagicMock(close=22000)
+
+    def consensus_score(votes: int) -> EnvironmentScore:
+        reason = f"Unified bullish conviction (Consensus {votes}/8) — GEX trend, NDE confirms"
+        oi_result = OIFlowResult(
+            score=1,
+            phase=TrendPhase.LONG_BUILDUP,
+            reason=reason,
+            gex_state="trend",
+            nde_state="confirms",
+            vega_trap=False,
+            pcr=1.0,
+            iv_skew=0.0,
+        )
+        return EnvironmentScore(
+            timestamp=datetime.now(), symbol="NIFTY", expiry=date.today(), dte=1,
+            score=7, status="GO", conditions=[
+                ConditionResult(name="oi_flow", status="GREEN", points=1, max_points=1, detail=reason)
+            ], summary_raw="raw", previous_status="GO", oi_flow_result=oi_result,
+        )
+
+    sched.evaluate.side_effect = [consensus_score(votes) for votes in range(5, 9)]
+
+    for _ in range(4):
+        await run_cycle()
+
+    assert sched.notifier.post_environment_alert.await_count == 1
 
 
 @pytest.mark.asyncio

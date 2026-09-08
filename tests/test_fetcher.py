@@ -3,6 +3,7 @@ import respx
 import httpx
 from datetime import datetime, date
 from kairos.fetcher import DhanFetcher, DhanAuthError, DhanAPIError
+from kairos.engine import compute_greeks_aggregates, find_atm
 from kairos.config import settings
 
 @pytest.mark.asyncio
@@ -103,7 +104,7 @@ async def test_fetcher_success(monkeypatch):
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_fetcher_rejects_option_side_with_missing_greek(monkeypatch):
+async def test_fetcher_preserves_missing_atm_greek_as_invalid_oi_data(monkeypatch):
     monkeypatch.setattr(settings, "dhan_client_id", "fake_client_id")
     monkeypatch.setattr(settings, "dhan_access_token", "fake_token")
     respx.post(f"{settings.dhan_base_url}/optionchain").respond(
@@ -116,6 +117,16 @@ async def test_fetcher_rejects_option_side_with_missing_greek(monkeypatch):
                             "implied_volatility": 12.5,
                             "oi": 100,
                             "greeks": {"delta": 0.5, "theta": -15.15, "vega": 12.18},
+                        },
+                        "pe": {
+                            "implied_volatility": 13.0,
+                            "oi": 150,
+                            "greeks": {
+                                "delta": -0.5,
+                                "gamma": 0.00109,
+                                "theta": -10.61,
+                                "vega": 12.20,
+                            },
                         }
                     }
                 }
@@ -126,8 +137,10 @@ async def test_fetcher_rejects_option_side_with_missing_greek(monkeypatch):
     await fetcher.start()
 
     chain = await fetcher.get_option_chain("NIFTY", date(2026, 3, 26))
+    atm = find_atm(chain, 22000, 50)
+    aggregates = compute_greeks_aggregates(chain, atm.atm_strike, 22000, 50.0, 65)
 
-    assert chain == []
+    assert aggregates["data_valid"] is False
     await fetcher.stop()
 
 @pytest.mark.asyncio

@@ -161,15 +161,18 @@ def compute_greeks_aggregates(
         pe_iv = pe.iv if pe else 0.0
         pe_prev_oi = pe.previous_oi if pe else 0
 
-        for row in (ce, pe):
-            if row and not all(
-                math.isfinite(value)
-                for value in (row.iv, row.delta, row.gamma, row.theta, row.vega)
-            ):
-                data_valid = False
-                invalid_reason = invalid_reason or "non-finite Greeks"
-
         if w > 0:
+            for row in (ce, pe):
+                if row and (
+                    not row.greeks_complete
+                    or not all(
+                        math.isfinite(value)
+                        for value in (row.iv, row.delta, row.gamma, row.theta, row.vega)
+                    )
+                ):
+                    data_valid = False
+                    invalid_reason = invalid_reason or "missing or non-finite Greeks"
+
             # NDE: delta × OI (pe_delta already negative)
             total_nde += w * (ce_delta * ce_oi + pe_delta * pe_oi)
             total_abs_nde += abs(w * ce_delta * ce_oi) + abs(w * pe_delta * pe_oi)

@@ -41,6 +41,7 @@ class OptionChainRow(BaseModel):
     ltp: float                   # last traded price
     bid: float
     ask: float
+    greeks_complete: bool = True
 
     @field_validator("option_type")
     @classmethod

@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- **MANM-103 OI Flow remediation:** made consensus current-first and direction-matched, removed PCR from trade gates, validated Greek aggregates, corrected Vega exposure normalization, capped GO on effective OI vetoes, and emitted deduplicated OI events below the score-silencing threshold. Documented the explicit policy that Short Covering and Long Unwinding remain eligible (overriding the legacy buildup-only checklist).
+- **MANM-103 OI Flow remediation:** made consensus current-first and direction-matched, removed PCR from trade gates, validated Greek aggregates, corrected Vega exposure normalization, capped GO on effective OI vetoes, and emitted deduplicated OI events below the score-silencing threshold. Reject incomplete Greek rows and ignore stale samples in historical Vega-trap counts. Documented the explicit policy that Short Covering and Long Unwinding remain eligible (overriding the legacy buildup-only checklist).
 
 ### Changed
 - **Fly.io Deploy: Local Build & Multi-Stage Dockerfile (`fly-deploy.yml`, `Dockerfile`, `.dockerignore`):**

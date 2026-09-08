@@ -452,7 +452,9 @@ def consolidate_oi_flow(
         )
         return _result("oi_flow", "RED", 0, 1, reason), consolidated
 
-    vega_trap_count = sum(1 for reading in buffer if reading.vega_trap)
+    vega_trap_count = sum(
+        1 for reading in buffer if reading.vega_trap and not reading.stale
+    )
     if vega_trap_count >= settings.oi_consensus_trap_threshold:
         reason = (
             f"Historical recovery hold — Vega trap active in "

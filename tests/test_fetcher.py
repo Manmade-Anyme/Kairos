@@ -100,6 +100,36 @@ async def test_fetcher_success(monkeypatch):
     
     await fetcher.stop()
 
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_fetcher_rejects_option_side_with_missing_greek(monkeypatch):
+    monkeypatch.setattr(settings, "dhan_client_id", "fake_client_id")
+    monkeypatch.setattr(settings, "dhan_access_token", "fake_token")
+    respx.post(f"{settings.dhan_base_url}/optionchain").respond(
+        status_code=200,
+        json={
+            "data": {
+                "oc": {
+                    "22000": {
+                        "ce": {
+                            "implied_volatility": 12.5,
+                            "oi": 100,
+                            "greeks": {"delta": 0.5, "theta": -15.15, "vega": 12.18},
+                        }
+                    }
+                }
+            }
+        },
+    )
+    fetcher = DhanFetcher()
+    await fetcher.start()
+
+    chain = await fetcher.get_option_chain("NIFTY", date(2026, 3, 26))
+
+    assert chain == []
+    await fetcher.stop()
+
 @pytest.mark.asyncio
 @respx.mock
 async def test_fetcher_retry_exhaustion(monkeypatch):

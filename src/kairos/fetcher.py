@@ -205,7 +205,14 @@ class DhanFetcher:
                 side = sides.get(key, {})
                 if not side:
                     continue
-                greeks = side.get("greeks", {})
+                greeks = side.get("greeks")
+                if (
+                    "implied_volatility" not in side
+                    or not isinstance(greeks, dict)
+                    or any(field not in greeks for field in ("delta", "gamma", "theta", "vega"))
+                ):
+                    logger.warning(f"Skipping row with missing Greeks for strike {strike_str}")
+                    continue
                 try:
                     raw_oi = int(side.get("oi", 0))
                     raw_prev_oi = int(side.get("previous_oi", 0))
@@ -215,11 +222,11 @@ class DhanFetcher:
                         expiry=expiry,
                         strike=strike,
                         option_type=opt_type,
-                        iv=float(side.get("implied_volatility", 0.0)),
-                        delta=float(greeks.get("delta", 0.0)),
-                        gamma=float(greeks.get("gamma", 0.0)),
-                        theta=float(greeks.get("theta", 0.0)),
-                        vega=float(greeks.get("vega", 0.0)),
+                        iv=float(side["implied_volatility"]),
+                        delta=float(greeks["delta"]),
+                        gamma=float(greeks["gamma"]),
+                        theta=float(greeks["theta"]),
+                        vega=float(greeks["vega"]),
                         oi=raw_oi,
                         previous_oi=raw_prev_oi,
                         oi_change=0,

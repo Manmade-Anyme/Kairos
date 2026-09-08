@@ -11,21 +11,24 @@ def _reading(
     phase: TrendPhase,
     *,
     score: int = 1,
+    reason: str = "fixture",
     gex_state: str = "trend",
     nde_state: str = "confirms",
     vega_trap: bool = False,
     data_valid: bool = True,
     stale: bool = False,
+    veto_reason: str | None = None,
 ) -> OIFlowResult:
     return OIFlowResult(
         score=score,
         phase=phase,
-        reason="fixture",
+        reason=reason,
         gex_state=gex_state,
         nde_state=nde_state,
         vega_trap=vega_trap,
         data_valid=data_valid,
         stale=stale,
+        veto_reason=veto_reason,
         pcr=1.0,
         iv_skew=0.0,
     )
@@ -130,6 +133,7 @@ def test_current_stale_reading_reports_staleness_before_invalid_data():
 
 
 def test_invalid_latest_reading_precedes_derived_vetoes():
+    invalid_reason = "Invalid OI data — missing gamma"
     history = deque(
         [
             _reading(
@@ -138,6 +142,8 @@ def test_invalid_latest_reading_precedes_derived_vetoes():
                 gex_state="pin",
                 vega_trap=True,
                 data_valid=False,
+                reason=invalid_reason,
+                veto_reason=invalid_reason,
             )
         ],
         maxlen=8,
@@ -145,7 +151,7 @@ def test_invalid_latest_reading_precedes_derived_vetoes():
 
     _, result = consolidate_oi_flow(history)
 
-    assert result.reason.startswith("Current Invalid OI data")
+    assert result.reason.startswith(f"Current {invalid_reason}")
 
 
 def test_stale_latest_reading_precedes_derived_vetoes():
@@ -165,6 +171,25 @@ def test_stale_latest_reading_precedes_derived_vetoes():
     _, result = consolidate_oi_flow(history)
 
     assert result.reason.startswith("Current Stale OI observation")
+
+
+def test_invalid_latest_reading_preserves_raw_reason_without_a_veto_reason():
+    invalid_reason = "Invalid OI data — unusable Vega denominator"
+    history = deque(
+        [
+            _reading(
+                TrendPhase.LONG_BUILDUP,
+                score=0,
+                data_valid=False,
+                reason=invalid_reason,
+            )
+        ],
+        maxlen=8,
+    )
+
+    _, result = consolidate_oi_flow(history)
+
+    assert result.reason.startswith(f"Current {invalid_reason}")
 
 
 def test_invalid_trap_duplicates_do_not_create_a_recovery_hold():

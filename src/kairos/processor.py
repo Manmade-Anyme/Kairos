@@ -425,7 +425,7 @@ def consolidate_oi_flow(
     if latest.stale:
         current_failure = "Stale OI observation"
     elif not latest.data_valid:
-        current_failure = "Invalid OI data"
+        current_failure = latest.veto_reason or latest.reason or "Invalid OI data"
     elif latest.vega_trap:
         current_failure = "Vega trap active"
     elif latest.gex_state == "pin":

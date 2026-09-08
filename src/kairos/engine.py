@@ -463,12 +463,20 @@ def evaluate(
     # Condition 3 raw + consensus filtering (ADR-021)
     c3_oi_raw, oi_flow_result_raw = score_oi_flow(cluster, iv_change_rate, candle_buffer)
     observation_timestamp = candle_buffer[-1].timestamp if candle_buffer else None
+    last_accepted_timestamp = next(
+        (
+            reading.observation_timestamp
+            for reading in reversed(oi_flow_buffer)
+            if reading.observation_timestamp is not None and not reading.stale
+        ),
+        None,
+    )
     if (
         observation_timestamp is not None
-        and oi_flow_buffer
-        and oi_flow_buffer[-1].observation_timestamp == observation_timestamp
+        and last_accepted_timestamp is not None
+        and observation_timestamp <= last_accepted_timestamp
     ):
-        stale_reason = "Stale OI observation — repeated candle timestamp"
+        stale_reason = "Stale OI observation — repeated or regressed candle timestamp"
         oi_flow_result_raw = oi_flow_result_raw.model_copy(
             update={
                 "score": 0,

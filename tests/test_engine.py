@@ -1,4 +1,5 @@
 from collections import deque
+from datetime import timedelta
 from kairos.engine import find_atm, evaluate
 from kairos.models import PreviousDayLevels, SessionConfig
 
@@ -109,3 +110,55 @@ def test_evaluate_with_consensus_buffer(make_candle, make_option_row, mock_now, 
     assert oi_cond.points == 1
     assert score.score == 8
     assert score.status == "GO"
+
+
+def test_evaluate_rejects_a_regressed_observation_timestamp(
+    make_candle, make_option_row, mock_now, mock_date
+):
+    from kairos.models import OIFlowResult, TrendPhase
+
+    chain = [
+        make_option_row(22000, "CE", iv=0.10, gamma=0.3, theta=-0.5, vega=1.0, oi_change=10000),
+        make_option_row(22000, "PE", iv=0.10, gamma=0.3, theta=-0.5, vega=1.0, oi_change=10000),
+    ]
+    regressed_candle = make_candle(22025.0, low=21700.0, high=22500.0).model_copy(
+        update={"timestamp": mock_now - timedelta(minutes=1)}
+    )
+    candles = deque([regressed_candle] * 15, maxlen=15)
+    iv_buffer = deque([0.10] * 16, maxlen=20)
+    previous_day = PreviousDayLevels(
+        symbol="NIFTY", trade_date=mock_date, prev_day_high=21000, prev_day_low=20000, fetched_at=mock_now
+    )
+    config = SessionConfig(symbol="NIFTY", expiry=mock_date, expiry_type="WEEKLY", status="ACTIVE")
+    oi_buffer = deque(
+        [
+            OIFlowResult(
+                score=1,
+                phase=TrendPhase.LONG_BUILDUP,
+                reason="Green",
+                gex_state="trend",
+                nde_state="confirms",
+                vega_trap=False,
+                pcr=1.1,
+                iv_skew=0.0,
+                observation_timestamp=mock_now,
+            ),
+            OIFlowResult(
+                score=0,
+                phase=TrendPhase.LONG_BUILDUP,
+                reason="Stale OI observation",
+                gex_state="trend",
+                nde_state="confirms",
+                vega_trap=False,
+                pcr=1.1,
+                iv_skew=0.0,
+                stale=True,
+                observation_timestamp=mock_now - timedelta(minutes=2),
+            ),
+        ],
+        maxlen=8,
+    )
+
+    score = evaluate(chain, candles, iv_buffer, previous_day, 22025.0, 3, config, oi_flow_buffer=oi_buffer)
+
+    assert score.oi_flow_result.stale is True

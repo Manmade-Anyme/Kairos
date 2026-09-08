@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Changed
+
+- **MANM-103 OI Flow remediation:** made consensus current-first and direction-matched, removed PCR from trade gates, validated Greek aggregates, corrected Vega exposure normalization, capped GO on effective OI vetoes, and emitted deduplicated OI events below the score-silencing threshold.
+
+### Changed
 - **Fly.io Deploy: Local Build & Multi-Stage Dockerfile (`fly-deploy.yml`, `Dockerfile`, `.dockerignore`):**
   - Removed `--remote-only` flag from `flyctl deploy` to switch to local build (Depot remote builder was timing out).
   - Switched Dockerfile to multi-stage build (builder + runtime stages) for a smaller final image.

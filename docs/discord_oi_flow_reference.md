@@ -96,9 +96,9 @@ Here is how you can read the "matrix" of these indicators when they arrive in Di
 > `🔴 OI Flow  : Short Buildup 🔴 | GEX neutral | NDE contra ✗`
 *   **Translation:** "Price is dropping, and retail is aggressively shorting. BUT, the options chain delta is overwhelmingly net-LONG. Smart money is buying the dip and waiting to squeeze the shorts. Do not enter. RED."
 
-### The "Profit Taking Pullback"
-> `🔴 OI Flow  : Long Unwinding 🟠 | GEX neutral | NDE confirms ✓`
-*   **Translation:** "Price is dropping, and the delta is bearish, but this is just tired bulls taking profits (OI is falling). There is no aggressive short-selling to sustain this drop. RED."
+### A Confirmed Long Unwinding
+> `🟢 OI Flow  : Long Unwinding 🟠 | GEX neutral | NDE confirms ✓`
+*   **Translation:** "Price and OI are both falling, while options flow confirms the bearish direction and dealers are not pinning the move. This phase remains eligible when the 5-of-8 directional consensus is met."
 
 ### The "Premium Sinkhole"
 > `🔴 OI Flow  : Long Buildup 🟢 | GEX neutral | NDE confirms ✓ | Vega trap 🔥`

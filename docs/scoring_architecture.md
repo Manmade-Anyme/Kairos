@@ -39,17 +39,17 @@ Based on the current score and specifically the state of the Implied Volatility 
 
 ### Condition 3: ATM OI Flow (Greeks-Aware Scoring Engine)
 **Weight:** 1 Point | **Time Parameter:** 15-Minute Rolling Baseline + 8-Minute Rolling Consensus Filter (ADR-021)
-**Logic:** A full-chain evaluation that cross-verifies price action phases against institutional positioning (GEX, NDE, Vega). To stabilize the 1-minute signal, an 8-minute rolling consensus filter (T-0 to T-7) is applied to the raw outputs. The final status is GREEN (1 Pt) only if at least 5 out of the last 8 cycles are raw GREEN, and the reported phase is the mode (most frequent) of those 8 cycles. If a Vega Trap or GEX Pin occurs in >= 3 of the last 8 cycles, the score is immediately forced to RED (0 Pts) for risk safety.
+**Logic:** A full-chain evaluation cross-verifies price action phases against GEX, NDE, and Vega. The newest reading is evaluated before history: any current trap, pin, ambiguous/contradictory NDE, neutral phase, stale observation, or invalid Greeks is immediately RED. A GREEN result requires at least five valid, NDE-confirming raw readings in the latest eight that match the current direction. Three retained Vega traps form a recovery hold, not a delay before a new trap blocks.
 
 #### Evaluation Logic (Priority-Ordered)
 The engine evaluates the following metrics in a strict hierarchy. If any high-priority "AVOID" rule is triggered, the final score for this condition is **RED (0 Pts)** regardless of the trend phase.
 
 1.  **Vega Trap Gate (Rule B):**
-    *   **Trigger:** High ATM Vega Exposure + Contracting IV Rate.
+    *   **Trigger:** Weighted ±3-strike Vega share exceeds 40% of the weighted ±7-strike chain while IV contracts.
     *   **Result:** 🔴 RED (0 Pts). Protects against buying options into "implied volatility crush."
 2.  **NDE Alignment (Rule C):**
     *   **Check:** Does the Net Delta Exposure (NDE) of the strike cluster align with the price action?
-    *   **Contradiction:** Spot ↑ while NDE is short-heavy, or Spot ↓ while NDE is long-heavy.
+    *   **Contradiction or ambiguity:** Spot ↑ while NDE is short-heavy, Spot ↓ while NDE is long-heavy, or NDE lacks a valid directional confirmation.
     *   **Result:** 🔴 RED (0 Pts). Indicates institutional hedging or "trapped" retail positioning.
 3.  **GEX Pin Status (Rule A):**
     *   **Trigger:** Net Gamma Exposure (GEX) exceeds the "Pin Threshold."
@@ -58,14 +58,14 @@ The engine evaluates the following metrics in a strict hierarchy. If any high-pr
     *   **Trigger:** High Theta Burn Rate WITHOUT confirming NDE momentum.
     *   **Result:** 🔴 RED (0 Pts). Time decay is the dominant force; professional writers are in control.
 5.  **Directional Phase Mapping (Unified Conviction):**
-    *   **GREEN (1 Pt):** Transition to **Long Buildup** or **Short Buildup** verified by **GEX Trend** (dealers amplifying moves) and aligned **PCR**.
-    *   **RED (0 Pts):** Neutral phases, "Straddle Writing" environments, or "Pullback" phases (Short Covering / Long Unwinding).
+    *   **GREEN (1 Pt):** Any existing eligible directional phase, valid GEX trend or neutral, and NDE confirmation. PCR is passive telemetry only.
+    *   **RED (0 Pts):** Neutral phases, invalid/stale Greek data, GEX pins, and unconfirmed NDE. Short Covering and Long Unwinding remain eligible per TASK-103 despite the older checklist's buildup-only guidance.
 
 | Metric | Threshold (Dynamic Default) | Role |
 |---|---|---|
 | GEX Area | > 20% of Total Absolute Chain GEX | Determines if dealers pin (absorb) or trend (amplify) moves. |
 | NDE Limit | > 20% of Total Absolute Chain NDE | Verifies directional bias and checks for trapped positioning. |
-| PCR Bias | Bull: > 1.05 / Bear: < 0.95 | Confirms alignment of the broader chain sentiment. |
+| PCR | Passive telemetry | Display-only compatibility metric; never a scoring gate. |
 | Vega Trap | > 40% of Total Chain Vega + IV Δ < 0 | Prevents entries into aggressive IV-contraction (theta trap) zones. |
 
 ### Condition 4: Averaged Gamma/Theta Ratio (DTE-Scaled)
@@ -126,4 +126,3 @@ To prevent the status from flickering between `AVOID` and `CAUTION` due to tiny 
 - **Trigger:** The cap turns ON immediately when IV contraction is detected (RED status).
 - **Release:** Once active, the cap is only released if IV recovers meaningfully (expansion >= +0.30).
 - **Retention:** If IV change is positive but below +0.30, the `iv_capped` flag remains `True`, and the status is held at `CAUTION`.
-

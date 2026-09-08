@@ -30,10 +30,11 @@ Look just below the top line and at the end of the `OI Flow` line for trap warni
 If the environment is **GO** and there are no warnings, analyze the **Condition 3: OI Flow** line. You need specific alignment to confirm a genuine breakout.
 
 ### A. The Trend Phase (Direction)
-Must show aggressive new money entering.
+Must show an eligible direction with matching consensus.
 *   ✅ `Long Buildup 🟢` → Prepare to **Buy Calls**.
 *   ✅ `Short Buildup 🔴` → Prepare to **Buy Puts**.
-*   ❌ `Short Covering 🔵`, `Long Unwinding 🟠`, `Neutral 🟡` → **NO TRADE** (Chop or pullback).
+*   ✅ `Short Covering 🔵`, `Long Unwinding 🟠` → Can qualify only when the displayed direction has valid GEX and confirming NDE.
+*   ❌ `Neutral 🟡` → **NO TRADE**.
 
 ### B. The GEX State (Dealer Positioning)
 Market makers should not be fighting the trend.
@@ -48,16 +49,6 @@ Smart money must agree with the chart.
 
 ---
 
-## Step 4: PCR (Put-Call Ratio) Check
-Verify the PCR line near the top agrees with your intended direction.
-
-| Intended Trade | Required PCR Alignment |
-| :--- | :--- |
-| **Buying Calls** (Long Buildup) | Ideally **> 1.05** (Put writers defending or dominant). |
-| **Buying Puts** (Short Buildup) | Ideally **< 0.95** (Put writers absent/abandoning). |
-
----
-
 ## 🚦 Final Execution Summary
 
 Take the trade **ONLY IF** the alert looks like one of these "Perfect Storms":
@@ -65,13 +56,13 @@ Take the trade **ONLY IF** the alert looks like one of these "Perfect Storms":
 ### 📈 Perfect Setup for CALLS
 > 🟢 **ENVIRONMENT: GO**
 > *(No IV warnings)*
-> PCR > 1.05
 > 🟢 **OI Flow:** Long Buildup 🟢 | GEX trend 🟢 | NDE confirms 🟢
 
 ### 📉 Perfect Setup for PUTS
 > 🟢 **ENVIRONMENT: GO**
 > *(No IV warnings)*
-> PCR < 0.95
 > 🟢 **OI Flow:** Short Buildup 🔴 | GEX trend 🟢 | NDE confirms 🟢
 
-*If a single piece of this alignment is missing, wait for the next alert.*
+*If required valid alignment is missing, wait for the next alert.*
+
+PCR is passive telemetry only; it is not a trade requirement. GEX neutral is acceptable when data is valid and NDE confirms the displayed direction. The prior buildup-only checklist policy is intentionally not enforced by the current engine.

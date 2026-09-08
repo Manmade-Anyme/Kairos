@@ -6,6 +6,7 @@ Computes Greeks aggregates for the upgraded Condition 3 scoring engine.
 
 from collections import deque
 from datetime import datetime
+import math
 from statistics import mean
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -118,7 +119,7 @@ def compute_greeks_aggregates(
     total_nde = 0.0
     total_gex = 0.0
     total_theta = 0.0
-    total_vega = 0.0
+    near_atm_abs_vega = 0.0
     total_abs_nde = 0.0
     total_abs_gex = 0.0
     total_abs_vega = 0.0
@@ -130,6 +131,8 @@ def compute_greeks_aggregates(
     pe_walls: dict[int, int] = {}
     pe_unwind_above_spot = False
     ce_unwind_below_spot = False
+    data_valid = True
+    invalid_reason: str | None = None
 
     for strike in all_strikes:
         sides = rows_by_strike[strike]
@@ -137,6 +140,10 @@ def compute_greeks_aggregates(
 
         ce = sides.get("CE")
         pe = sides.get("PE")
+
+        if w > 0 and (ce is None or pe is None):
+            data_valid = False
+            invalid_reason = invalid_reason or "missing CE/PE Greek side"
 
         ce_oi = ce.oi if ce else 0
         ce_delta = ce.delta if ce else 0.0
@@ -153,6 +160,14 @@ def compute_greeks_aggregates(
         pe_theta = pe.theta if pe else 0.0
         pe_iv = pe.iv if pe else 0.0
         pe_prev_oi = pe.previous_oi if pe else 0
+
+        for row in (ce, pe):
+            if row and not all(
+                math.isfinite(value)
+                for value in (row.iv, row.delta, row.gamma, row.theta, row.vega)
+            ):
+                data_valid = False
+                invalid_reason = invalid_reason or "non-finite Greeks"
 
         if w > 0:
             # NDE: delta × OI (pe_delta already negative)
@@ -172,11 +187,13 @@ def compute_greeks_aggregates(
             ce_walls[strike] = ce_oi
             pe_walls[strike] = pe_oi
 
-            # Vega and IV skew — tighter window
+            # Vega uses the same strike weights in both its near-ATM numerator
+            # and the full main-window denominator.
+            vega_exposure = abs(w * ce_vega * ce_oi) + abs(w * pe_vega * pe_oi)
+            total_abs_vega += vega_exposure
             vega_distance = abs(strike - atm_strike) / strike_step
             if vega_distance <= vega_window:
-                total_vega += w * (ce_vega * ce_oi + pe_vega * pe_oi)
-                total_abs_vega += abs(w * ce_vega * ce_oi) + abs(w * pe_vega * pe_oi)
+                near_atm_abs_vega += vega_exposure
                 if ce_iv > 0:
                     ce_iv_list.append(ce_iv)
                 if pe_iv > 0:
@@ -207,10 +224,14 @@ def compute_greeks_aggregates(
     ce_wall_oi_cr = round(ce_walls[ce_wall_strike] / 10_000_000, 2) if ce_wall_strike else None
     pe_wall_oi_cr = round(pe_walls[pe_wall_strike] / 10_000_000, 2) if pe_wall_strike else None
 
+    if total_abs_gex <= 0 or total_abs_nde <= 0 or total_abs_vega <= 0:
+        data_valid = False
+        invalid_reason = invalid_reason or "unusable Greek exposure denominator"
+
     return {
         "net_delta_exposure": total_nde,
         "net_gex": total_gex,
-        "atm_vega_exposure": total_vega,
+        "atm_vega_exposure": near_atm_abs_vega,
         "theta_burn_rate": total_theta,
         "pcr": pcr,
         "iv_skew": iv_skew,
@@ -223,6 +244,8 @@ def compute_greeks_aggregates(
         "total_abs_gex": total_abs_gex,
         "total_abs_nde": total_abs_nde,
         "total_abs_vega": total_abs_vega,
+        "data_valid": data_valid,
+        "data_invalid_reason": invalid_reason,
     }
 
 
@@ -436,6 +459,26 @@ def evaluate(
     
     # Condition 3 raw + consensus filtering (ADR-021)
     c3_oi_raw, oi_flow_result_raw = score_oi_flow(cluster, iv_change_rate, candle_buffer)
+    observation_timestamp = candle_buffer[-1].timestamp if candle_buffer else None
+    if (
+        observation_timestamp is not None
+        and oi_flow_buffer
+        and oi_flow_buffer[-1].observation_timestamp == observation_timestamp
+    ):
+        stale_reason = "Stale OI observation — repeated candle timestamp"
+        oi_flow_result_raw = oi_flow_result_raw.model_copy(
+            update={
+                "score": 0,
+                "reason": stale_reason,
+                "data_valid": False,
+                "stale": True,
+                "effective_veto": True,
+                "veto_reason": stale_reason,
+                "observation_timestamp": observation_timestamp,
+            }
+        )
+    else:
+        oi_flow_result_raw.observation_timestamp = observation_timestamp
     oi_flow_buffer.append(oi_flow_result_raw)
     c3_oi, oi_flow_result = consolidate_oi_flow(oi_flow_buffer)
 
@@ -455,6 +498,8 @@ def evaluate(
 
     # ── Determine final status ────────────────────────────────────────────
     status = _determine_status(total_score, iv_capped)
+    if oi_flow_result.effective_veto and status == "GO":
+        status = "CAUTION"
 
     # ── Build summary_raw ─────────────────────────────────────────────────
     summary_raw = _build_summary_raw(conditions, total_score, max_score, iv_capped, dte)

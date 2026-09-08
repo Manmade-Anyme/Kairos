@@ -174,8 +174,9 @@ class Notifier:
         elif score.iv_capped:
             lines.append("⚠️ IV contracting — premium at risk")
 
-        # OI Flow reason footer (only on state-change alerts)
-        if score.oi_flow_result and score.state_changed:
+        # OI event fingerprints decide when an alert is posted; always include
+        # the scored reason so an unchanged environment status is explainable.
+        if score.oi_flow_result:
             prefix = "✓" if score.oi_flow_result.score == 1 else "⚠️"
             lines.append(f"{prefix} {score.oi_flow_result.reason}")
 

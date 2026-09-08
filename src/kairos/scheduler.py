@@ -41,6 +41,7 @@ class SessionState:
         # OI rolling snapshots (15-minute rolling window)
         self.oi_snapshot_buffer: deque = deque(maxlen=settings.oi_lookback_cycles)
         self.last_alerted_oi_phase: Optional[str] = None
+        self.last_oi_event_fingerprint: Optional[tuple] = None
 
         # Session tracking
         self.active_config: Optional[SessionConfig] = None
@@ -76,6 +77,7 @@ class SessionState:
         self.oi_flow_buffer.clear()
         self.oi_snapshot_buffer.clear()
         self.last_alerted_oi_phase = None
+        self.last_oi_event_fingerprint = None
         self.cycle_count = 0
         self.warmup_complete = False
         self.previous_status = None
@@ -497,6 +499,10 @@ async def run_cycle() -> None:
         # Either cap was never active, or IV recovered to GREEN — release
         state.iv_cap_active = False
 
+    oi_result = score.oi_flow_result
+    if oi_result and oi_result.effective_veto and score.status == "GO":
+        score.status = "CAUTION"
+
     # 10. Write to Supabase
     await db.write_environment_log(score)
     state.last_successful_cycle_time = datetime.now(IST)
@@ -510,6 +516,21 @@ async def run_cycle() -> None:
     for c in score.conditions:
         if c.name == "oi_flow":
             current_oi_phase = c.detail.split('|')[0].strip() if '|' in c.detail else c.detail
+
+    oi_fingerprint = None
+    if oi_result:
+        oi_fingerprint = (
+            oi_result.score,
+            oi_result.phase.value,
+            oi_result.gex_state,
+            oi_result.nde_state,
+            oi_result.vega_trap,
+            oi_result.data_valid,
+            oi_result.stale,
+            oi_result.effective_veto,
+            oi_result.reason,
+        )
+    oi_event_changed = oi_fingerprint != state.last_oi_event_fingerprint
 
     if state.previous_conditions:
         if len(state.previous_conditions) != len(score.conditions):
@@ -527,13 +548,13 @@ async def run_cycle() -> None:
     elif score.conditions:
         significant_change = True  # First cycle with scoring data
 
-    if (score.state_changed or just_warmed_up or significant_change) and state.warmup_complete:
-        should_alert = False
+    if (score.state_changed or just_warmed_up or significant_change or oi_event_changed) and state.warmup_complete:
+        should_alert = oi_event_changed
 
-        if score.score >= 6:
+        if not should_alert and score.score >= 6:
             state.is_silenced = False
             should_alert = True
-        else:
+        elif not should_alert:
             if not state.is_silenced:
                 state.is_silenced = True
                 should_alert = True
@@ -547,6 +568,8 @@ async def run_cycle() -> None:
             
             if current_oi_phase:
                 state.last_alerted_oi_phase = current_oi_phase
+            if oi_fingerprint is not None:
+                state.last_oi_event_fingerprint = oi_fingerprint
 
             # Post environment alert for significant shifts
             await notifier.post_environment_alert(score)

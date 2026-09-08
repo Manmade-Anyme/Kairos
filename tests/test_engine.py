@@ -15,8 +15,8 @@ def test_find_atm_exact(make_option_row):
 
 def test_evaluate_iv_cap(make_candle, make_option_row, mock_now, mock_date):
     chain = [
-        make_option_row(22000, "CE", iv=0.10, gamma=0.3, theta=-0.5, oi_change=1000, ltp=150.0),
-        make_option_row(22000, "PE", iv=0.10, gamma=0.3, theta=-0.5, oi_change=-500, ltp=150.0)
+        make_option_row(22000, "CE", iv=0.10, gamma=0.3, theta=-0.5, vega=1.0, oi_change=10000, ltp=150.0),
+        make_option_row(22000, "PE", iv=0.10, gamma=0.3, theta=-0.5, vega=1.0, oi_change=10000, ltp=150.0)
     ]
     c_buf = deque(maxlen=15)
     for _ in range(10):
@@ -40,8 +40,8 @@ def test_evaluate_iv_cap(make_candle, make_option_row, mock_now, mock_date):
 
 def test_evaluate_go_no_cap(make_candle, make_option_row, mock_now, mock_date):
     chain = [
-        make_option_row(22000, "CE", iv=0.10, gamma=0.3, theta=-0.5, oi_change=1000, ltp=150.0),
-        make_option_row(22000, "PE", iv=0.10, gamma=0.3, theta=-0.5, oi_change=-500, ltp=150.0)
+        make_option_row(22000, "CE", iv=0.10, gamma=0.3, theta=-0.5, vega=1.0, oi_change=10000, ltp=150.0),
+        make_option_row(22000, "PE", iv=0.10, gamma=0.3, theta=-0.5, vega=1.0, oi_change=10000, ltp=150.0)
     ]
     c_buf = deque(maxlen=15)
     for _ in range(10):
@@ -68,8 +68,8 @@ def test_evaluate_go_no_cap(make_candle, make_option_row, mock_now, mock_date):
 def test_evaluate_with_consensus_buffer(make_candle, make_option_row, mock_now, mock_date):
     from kairos.models import OIFlowResult, TrendPhase
     chain = [
-        make_option_row(22000, "CE", iv=0.10, gamma=0.3, theta=-0.5, oi_change=1000, ltp=150.0),
-        make_option_row(22000, "PE", iv=0.10, gamma=0.3, theta=-0.5, oi_change=-500, ltp=150.0)
+        make_option_row(22000, "CE", iv=0.10, gamma=0.3, theta=-0.5, vega=1.0, oi_change=10000, ltp=150.0),
+        make_option_row(22000, "PE", iv=0.10, gamma=0.3, theta=-0.5, vega=1.0, oi_change=10000, ltp=150.0)
     ]
     c_buf = deque(maxlen=15)
     for _ in range(10):
@@ -101,7 +101,7 @@ def test_evaluate_with_consensus_buffer(make_candle, make_option_row, mock_now, 
             iv_skew=0.0
         ))
     
-    score = evaluate(chain, c_buf, i_buf, prev, 22000.0, 3, config, oi_flow_buffer=oi_buf)
+    score = evaluate(chain, c_buf, i_buf, prev, 22025.0, 3, config, oi_flow_buffer=oi_buf)
     
     oi_cond = score.get_condition("oi_flow")
     assert oi_cond is not None
@@ -109,4 +109,3 @@ def test_evaluate_with_consensus_buffer(make_candle, make_option_row, mock_now, 
     assert oi_cond.points == 1
     assert score.score == 8
     assert score.status == "GO"
-

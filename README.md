@@ -13,7 +13,8 @@ The core conviction engine (Condition 3: OI Flow) has been upgraded from a simpl
 - **GEX (Gamma Exposure)**: Identifies dealer pins vs trending environments.
 - **NDE (Net Delta Exposure)**: Confirms price momentum against chain delta bias.
 - **Vega Trap Detection**: Protects buyers from entering "expensive" premiums during IV contraction.
-- **Theta Burn Rate**: Detects rangebound "premiums sinks" dominated by option writers.
+- **Theta Burn Rate**: Detects rangebound "premium sinks" dominated by option writers.
+- **Directional consensus**: Requires five valid, same-direction readings in the latest eight.
 
 ### Market Trend Phases
 While the underlying **Trend Phase** (Price Δ vs OI Δ) is still calculated, it is now cross-verified against the Greeks above. Points are only awarded if ALL rules align.
@@ -21,10 +22,14 @@ While the underlying **Trend Phase** (Price Δ vs OI Δ) is still calculated, it
 | Phase | Price Δ | OI Δ | Interpretation |
 |---|---|---|---|
 | **Long Buildup 🟢** | Positive | Positive | Fresh buying; strong bullish conviction. |
-| **Short Covering 🔵** | Positive | Negative | Sellers exiting; rally/pullback (Not Traded). |
+| **Short Covering 🔵** | Positive | Negative | Bullish directional phase; eligible only with confirmed GEX/NDE alignment. |
 | **Short Buildup 🔴** | Negative | Positive | Fresh selling; strong bearish conviction. |
-| **Long Unwinding 🟠**| Negative | Negative | Buyers exiting; profit booking (Not Traded). |
+| **Long Unwinding 🟠**| Negative | Negative | Bearish directional phase; eligible only with confirmed GEX/NDE alignment. |
 | **Neutral 🟡** | Varied | < Thresh | Consolidation or writer-dominated market. |
+
+---
+
+PCR remains visible as passive chain telemetry, but never gates OI Flow scoring or trade eligibility. The older checklist's buildup-only policy is retained only as historical context; TASK-103 preserves the engine's existing Short Covering and Long Unwinding eligibility.
 
 ---
 

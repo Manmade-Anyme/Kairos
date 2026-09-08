@@ -4,7 +4,7 @@ import pytest
 import respx
 
 from kairos.config import settings
-from kairos.models import ConditionResult, EnvironmentScore, SessionConfig
+from kairos.models import ConditionResult, EnvironmentScore, OIFlowResult, SessionConfig, TrendPhase
 from kairos.notifier import Notifier
 
 
@@ -58,6 +58,30 @@ async def test_post_environment_alert(dummy_score):
     assert "⚠️ IV Cap Active" not in content
     assert "⚠️ Capped at CAUTION" not in content
     assert "⚠️ IV contracting" not in content
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_post_environment_alert_includes_oi_reason_without_status_change(dummy_score):
+    route = respx.post(settings.discord_webhook_url).respond(status_code=204)
+    score = dummy_score.model_copy(update={"previous_status": "GO"})
+    score.oi_flow_result = OIFlowResult(
+        score=0,
+        phase=TrendPhase.LONG_BUILDUP,
+        reason="Historical recovery hold — Vega trap active — NO TRADE",
+        gex_state="trend",
+        nde_state="confirms",
+        vega_trap=False,
+        pcr=1.0,
+        iv_skew=0.0,
+        effective_veto=True,
+    )
+    notifier = Notifier()
+    await notifier.start()
+    await notifier.post_environment_alert(score)
+    await notifier.stop()
+
+    assert score.oi_flow_result.reason in route.calls.last.request.content.decode()
 
 @pytest.mark.asyncio
 @respx.mock

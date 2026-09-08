@@ -12,7 +12,15 @@ from kairos.scheduler import (
     is_lunch_break,
     get_session_name,
 )
-from kairos.models import SessionConfig, PreviousDayLevels, OHLCVCandle, ConditionResult, EnvironmentScore
+from kairos.models import (
+    SessionConfig,
+    PreviousDayLevels,
+    OHLCVCandle,
+    ConditionResult,
+    EnvironmentScore,
+    OIFlowResult,
+    TrendPhase,
+)
 from kairos.config import settings
 from kairos.fetcher import DhanAuthError, DhanAPIError
 
@@ -197,6 +205,97 @@ async def test_run_cycle_significant_change_detection(mock_deps, mocker):
     await run_cycle()
     sched.notifier.post_environment_alert.assert_called()
 
+
+@pytest.mark.asyncio
+async def test_run_cycle_alerts_changed_oi_veto_below_six_once(mock_deps, mocker):
+    """A semantic OI veto change bypasses low-score silencing but deduplicates."""
+    import kairos.scheduler as sched
+
+    sched.state.reset_buffers()
+    sched.state.startup_done = True
+    sched.state.in_session = True
+    sched.state.warmup_complete = True
+    sched.state.active_config = SessionConfig(
+        symbol="NIFTY", expiry=date.today(), expiry_type="WEEKLY", status="ACTIVE"
+    )
+    sched.state.prev_levels = MagicMock()
+    sched.state.previous_status = "AVOID"
+    mocker.patch("kairos.scheduler.is_active_session", return_value=True)
+    sched.db.get_active_session.return_value = sched.state.active_config
+    sched.fetcher.get_option_chain.return_value = []
+    sched.fetcher.get_latest_candle.return_value = MagicMock(close=22000)
+
+    oi_condition = ConditionResult(
+        name="oi_flow", status="RED", points=0, max_points=1,
+        detail="Current Vega trap active — NO TRADE",
+    )
+    first_oi = OIFlowResult(
+        score=0, phase=TrendPhase.LONG_BUILDUP,
+        reason="Current Vega trap active — NO TRADE",
+        gex_state="trend", nde_state="confirms", vega_trap=True,
+        pcr=1.0, iv_skew=0.0, effective_veto=True,
+    )
+    first_score = EnvironmentScore(
+        timestamp=datetime.now(), symbol="NIFTY", expiry=date.today(), dte=1,
+        score=3, status="AVOID", conditions=[oi_condition], summary_raw="raw",
+        previous_status="AVOID", oi_flow_result=first_oi,
+    )
+    sched.evaluate.return_value = first_score
+
+    await run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 1
+
+    second_oi = first_oi.model_copy(
+        update={"reason": "Historical recovery hold — Vega trap active — NO TRADE", "vega_trap": False}
+    )
+    second_score = first_score.model_copy(update={"oi_flow_result": second_oi})
+    sched.evaluate.return_value = second_score
+
+    await run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 2
+
+    await run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_oi_veto_caps_go_even_with_yellow_iv(mock_deps, mocker):
+    """An OI veto must survive the scheduler's IV hysteresis path."""
+    import kairos.scheduler as sched
+
+    sched.state.reset_buffers()
+    sched.state.startup_done = True
+    sched.state.in_session = True
+    sched.state.warmup_complete = True
+    sched.state.active_config = SessionConfig(
+        symbol="NIFTY", expiry=date.today(), expiry_type="WEEKLY", status="ACTIVE"
+    )
+    sched.state.prev_levels = MagicMock()
+    mocker.patch("kairos.scheduler.is_active_session", return_value=True)
+    sched.db.get_active_session.return_value = sched.state.active_config
+    sched.fetcher.get_option_chain.return_value = []
+    sched.fetcher.get_latest_candle.return_value = MagicMock(close=22000)
+
+    oi_result = OIFlowResult(
+        score=0, phase=TrendPhase.LONG_BUILDUP,
+        reason="Historical recovery hold — Vega trap active — NO TRADE",
+        gex_state="trend", nde_state="confirms", vega_trap=False,
+        pcr=1.0, iv_skew=0.0, effective_veto=True,
+    )
+    score = EnvironmentScore(
+        timestamp=datetime.now(), symbol="NIFTY", expiry=date.today(), dte=1,
+        score=7, status="GO", conditions=[
+            ConditionResult(name="iv_trend", status="YELLOW", points=1, max_points=2, detail="flat"),
+            ConditionResult(name="oi_flow", status="RED", points=0, max_points=1, detail=oi_result.reason),
+        ],
+        summary_raw="raw", oi_flow_result=oi_result,
+    )
+    sched.evaluate.return_value = score
+
+    await run_cycle()
+
+    assert score.status == "CAUTION"
+
 @pytest.mark.asyncio
 async def test_run_cycle_iv_cap_hold_go_to_caution(mock_deps, mocker):
     import kairos.scheduler as sched
@@ -333,5 +432,3 @@ async def test_run_cycle_oi_rolling_calculation(mock_deps, mocker, make_option_r
     await run_cycle()
     # Buffer contains [t1, t0, t_next] because maxlen=3, oldest is t1 (oi=1200)
     assert row_t_next.oi_change == 600
-
-

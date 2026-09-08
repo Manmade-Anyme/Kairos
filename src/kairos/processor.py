@@ -500,8 +500,8 @@ def consolidate_oi_flow(
         update={
             "score": score_val,
             "reason": reason,
-            "effective_veto": False,
-            "veto_reason": None,
+            "effective_veto": score_val == 0,
+            "veto_reason": reason if score_val == 0 else None,
         }
     )
     status = "GREEN" if score_val else "RED"

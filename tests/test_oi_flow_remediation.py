@@ -84,6 +84,8 @@ def test_mixed_direction_votes_do_not_form_consensus():
 
     assert condition.status == "RED"
     assert result.score == 0
+    assert result.effective_veto is True
+    assert result.veto_reason == result.reason
     assert "4/8" in result.reason
 
 
@@ -251,12 +253,36 @@ def test_vega_denominator_uses_the_wider_main_window(make_option_row):
     assert aggregates["atm_vega_exposure"] < aggregates["total_abs_vega"]
 
 
+def test_missing_expected_strike_pair_invalidates_full_scoring_grid(make_option_row):
+    chain = []
+    for strike in range(21650, 22351, 50):
+        if strike == 22050:
+            continue
+        chain.extend(
+            [
+                make_option_row(strike, "CE", gamma=0.2, vega=1.0, oi=1000),
+                make_option_row(strike, "PE", gamma=0.2, vega=1.0, oi=1000),
+            ]
+        )
+
+    aggregates = compute_greeks_aggregates(chain, 22000, 22000, 50.0, 65)
+
+    assert (aggregates["data_valid"], aggregates["data_invalid_reason"]) == (
+        False,
+        "missing CE/PE Greek side",
+    )
+
+
 def test_zero_weight_nonfinite_greeks_do_not_invalidate_active_window(make_option_row):
-    chain = [
-        make_option_row(22000, "CE", delta=0.5, gamma=0.2, vega=1.0, oi=1000),
-        make_option_row(22000, "PE", delta=-0.5, gamma=0.2, vega=1.0, oi=1000),
-        make_option_row(23000, "CE", delta=float("nan"), gamma=0.2, vega=1.0, oi=1000),
-    ]
+    chain = []
+    for strike in range(21650, 22351, 50):
+        chain.extend(
+            [
+                make_option_row(strike, "CE", delta=0.5, gamma=0.2, vega=1.0, oi=1000),
+                make_option_row(strike, "PE", delta=-0.5, gamma=0.2, vega=1.0, oi=1000),
+            ]
+        )
+    chain.append(make_option_row(23000, "CE", delta=float("nan"), gamma=0.2, vega=1.0, oi=1000))
 
     aggregates = compute_greeks_aggregates(chain, 22000, 22000, 50.0, 65)
 
@@ -264,11 +290,18 @@ def test_zero_weight_nonfinite_greeks_do_not_invalidate_active_window(make_optio
 
 
 def test_zero_vega_denominator_is_invalid_data(make_option_row):
-    chain = [
-        make_option_row(22000, "CE", gamma=0.2, delta=0.5, vega=0.0),
-        make_option_row(22000, "PE", gamma=0.2, delta=-0.5, vega=0.0),
-    ]
+    chain = []
+    for strike in range(21650, 22351, 50):
+        chain.extend(
+            [
+                make_option_row(strike, "CE", gamma=0.2, delta=0.5, vega=0.0),
+                make_option_row(strike, "PE", gamma=0.2, delta=-0.5, vega=0.0),
+            ]
+        )
 
     aggregates = compute_greeks_aggregates(chain, 22000, 22000, 50.0, 65)
 
-    assert aggregates["data_valid"] is False
+    assert (aggregates["data_valid"], aggregates["data_invalid_reason"]) == (
+        False,
+        "unusable Greek exposure denominator",
+    )

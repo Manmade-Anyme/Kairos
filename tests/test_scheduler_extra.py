@@ -305,6 +305,59 @@ async def test_run_cycle_silences_diagnostic_consensus_vote_changes(mock_deps, m
 
 
 @pytest.mark.asyncio
+async def test_run_cycle_alerts_first_low_score_non_oi_transition_with_stable_oi(mock_deps, mocker):
+    """A changed non-OI condition gets one low-score alert before silence."""
+    import kairos.scheduler as sched
+
+    sched.state.reset_buffers()
+    sched.state.startup_done = True
+    sched.state.in_session = True
+    sched.state.warmup_complete = True
+    sched.state.is_silenced = False
+    sched.state.active_config = SessionConfig(
+        symbol="NIFTY", expiry=date.today(), expiry_type="WEEKLY", status="ACTIVE"
+    )
+    sched.state.prev_levels = MagicMock()
+    sched.state.previous_status = "GO"
+    mocker.patch("kairos.scheduler.is_active_session", return_value=True)
+    sched.db.get_active_session.return_value = sched.state.active_config
+    sched.fetcher.get_option_chain.return_value = []
+    sched.fetcher.get_latest_candle.return_value = MagicMock(close=22000)
+
+    oi_result = OIFlowResult(
+        score=1, phase=TrendPhase.LONG_BUILDUP,
+        reason="Unified bullish conviction (Consensus 5/8) — GEX trend, NDE confirms",
+        gex_state="trend", nde_state="confirms", vega_trap=False, pcr=1.0, iv_skew=0.0,
+    )
+    oi_condition = ConditionResult(
+        name="oi_flow", status="GREEN", points=1, max_points=1, detail=oi_result.reason
+    )
+    high_score = EnvironmentScore(
+        timestamp=datetime.now(), symbol="NIFTY", expiry=date.today(), dte=1,
+        score=7, status="GO", conditions=[
+            ConditionResult(name="momentum", status="GREEN", points=1, max_points=1, detail="up"),
+            oi_condition,
+        ], summary_raw="raw", previous_status="GO", oi_flow_result=oi_result,
+    )
+    low_score = high_score.model_copy(
+        update={
+            "score": 5,
+            "status": "CAUTION",
+            "conditions": [
+                ConditionResult(name="momentum", status="RED", points=0, max_points=1, detail="down"),
+                oi_condition,
+            ],
+        }
+    )
+    sched.evaluate.side_effect = [high_score, low_score]
+
+    await run_cycle()
+    await run_cycle()
+
+    assert (sched.notifier.post_environment_alert.await_count, sched.state.is_silenced) == (2, True)
+
+
+@pytest.mark.asyncio
 async def test_run_cycle_deduplicates_successful_consensus_vote_changes(mock_deps, mocker):
     """Successful 5/8-to-8/8 diagnostics are one semantic OI event."""
     import kairos.scheduler as sched

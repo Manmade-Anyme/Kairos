@@ -563,10 +563,9 @@ async def run_cycle() -> None:
         if not should_alert and score.score >= 6:
             state.is_silenced = False
             should_alert = True
-        elif not should_alert and not (oi_result and not oi_event_changed):
-            if not state.is_silenced:
-                state.is_silenced = True
-                should_alert = True
+        elif not should_alert and not state.is_silenced:
+            state.is_silenced = True
+            should_alert = True
 
         if should_alert:
             if score.state_changed:

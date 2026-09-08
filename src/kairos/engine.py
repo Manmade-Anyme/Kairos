@@ -102,9 +102,14 @@ def compute_greeks_aggregates(
     for r in option_chain:
         rows_by_strike.setdefault(r.strike, {})[r.option_type] = r
 
-    all_strikes = sorted(rows_by_strike.keys())
-    if not all_strikes:
+    if not rows_by_strike:
         return {}
+
+    expected_strikes = range(
+        atm_strike - strike_window * int(strike_step),
+        atm_strike + strike_window * int(strike_step) + 1,
+        int(strike_step),
+    )
 
     def _weight(strike: int) -> float:
         distance = abs(strike - atm_strike) / strike_step
@@ -134,8 +139,8 @@ def compute_greeks_aggregates(
     data_valid = True
     invalid_reason: str | None = None
 
-    for strike in all_strikes:
-        sides = rows_by_strike[strike]
+    for strike in expected_strikes:
+        sides = rows_by_strike.get(strike, {})
         w = _weight(strike)
 
         ce = sides.get("CE")
@@ -151,16 +156,12 @@ def compute_greeks_aggregates(
         ce_vega = ce.vega if ce else 0.0
         ce_theta = ce.theta if ce else 0.0
         ce_iv = ce.iv if ce else 0.0
-        ce_prev_oi = ce.previous_oi if ce else 0
-
         pe_oi = pe.oi if pe else 0
         pe_delta = pe.delta if pe else 0.0  # Already negative from Dhan
         pe_gamma = pe.gamma if pe else 0.0
         pe_vega = pe.vega if pe else 0.0
         pe_theta = pe.theta if pe else 0.0
         pe_iv = pe.iv if pe else 0.0
-        pe_prev_oi = pe.previous_oi if pe else 0
-
         if w > 0:
             for row in (ce, pe):
                 if row and (
@@ -202,7 +203,14 @@ def compute_greeks_aggregates(
                 if pe_iv > 0:
                     pe_iv_list.append(pe_iv)
 
-        # Smart money unwind scan (all strikes, not just windowed)
+    # Smart money unwind scan (all strikes, not just windowed).
+    for strike, sides in rows_by_strike.items():
+        ce = sides.get("CE")
+        pe = sides.get("PE")
+        ce_oi = ce.oi if ce else 0
+        ce_prev_oi = ce.previous_oi if ce else 0
+        pe_oi = pe.oi if pe else 0
+        pe_prev_oi = pe.previous_oi if pe else 0
         if strike > spot_price and pe_prev_oi > 0 and pe:
             pe_delta_pct = (pe_oi - pe_prev_oi) / pe_prev_oi * 100
             if pe_delta_pct < -8.0:

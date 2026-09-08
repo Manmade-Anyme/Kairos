@@ -577,3 +577,89 @@ async def test_run_cycle_oi_rolling_calculation(mock_deps, mocker, make_option_r
     await run_cycle()
     # Buffer contains [t1, t0, t_next] because maxlen=3, oldest is t1 (oi=1200)
     assert row_t_next.oi_change == 600
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_preserves_timestamp_through_nine_obsolete_candles(
+    mock_deps, mocker, make_candle, make_option_row, mock_now
+):
+    import kairos.engine as engine
+    import kairos.scheduler as sched
+
+    config = SessionConfig(
+        symbol="NIFTY",
+        expiry=date.today(),
+        expiry_type="WEEKLY",
+        status="ACTIVE",
+    )
+    fresh_timestamp = mock_now
+    fresh_candle = make_candle(
+        22000.0,
+        low=21700.0,
+        high=22300.0,
+        vwap=22000.0,
+    ).model_copy(update={"timestamp": fresh_timestamp})
+    obsolete_candles = [
+        fresh_candle.model_copy(
+            update={
+                "timestamp": (
+                    fresh_timestamp
+                    if index % 2 == 0
+                    else fresh_timestamp - timedelta(minutes=1)
+                )
+            }
+        )
+        for index in range(9)
+    ]
+    option_chain = [
+        make_option_row(
+            strike,
+            option_type,
+            iv=0.2,
+            gamma=0.3,
+            theta=-0.5,
+            vega=1.0,
+            oi_change=10_000,
+            ltp=150.0,
+        )
+        for strike in range(21650, 22351, 50)
+        for option_type in ("CE", "PE")
+    ]
+
+    sched.state.reset_buffers()
+    try:
+        sched.state.startup_done = True
+        sched.state.in_session = True
+        sched.state.warmup_complete = True
+        sched.state.active_config = config
+        sched.state.prev_levels = PreviousDayLevels(
+            symbol="NIFTY",
+            trade_date=date.today(),
+            prev_day_high=23000.0,
+            prev_day_low=21000.0,
+            fetched_at=fresh_timestamp,
+        )
+        mocker.patch("kairos.scheduler.is_active_session", return_value=True)
+        sched.db.get_active_session.return_value = config
+        sched.fetcher.get_option_chain.return_value = option_chain
+        sched.fetcher.get_latest_candle.side_effect = [
+            fresh_candle,
+            *obsolete_candles,
+        ]
+        sched.evaluate.side_effect = engine.evaluate
+
+        for _ in range(10):
+            await run_cycle()
+
+        accepted_timestamps = [
+            call.kwargs["last_accepted_timestamp"]
+            for call in sched.evaluate.call_args_list
+        ]
+        assert accepted_timestamps == [None, *([fresh_timestamp] * 9)]
+        assert sched.state.last_accepted_oi_timestamp == fresh_timestamp
+        assert len(sched.state.oi_flow_buffer) == 8
+        assert all(reading.stale for reading in sched.state.oi_flow_buffer)
+    finally:
+        sched.state.reset_buffers()
+
+    assert sched.state.last_accepted_oi_timestamp is None

@@ -1,9 +1,10 @@
 """Regression coverage for the MANM-103 OI Flow remediation."""
 
 from collections import deque
+from datetime import timedelta
 
-from kairos.engine import compute_greeks_aggregates
-from kairos.models import OIFlowResult, TrendPhase
+from kairos.engine import compute_greeks_aggregates, evaluate
+from kairos.models import OIFlowResult, PreviousDayLevels, SessionConfig, TrendPhase
 from kairos.processor import consolidate_oi_flow, score_oi_flow
 
 
@@ -305,3 +306,69 @@ def test_zero_vega_denominator_is_invalid_data(make_option_row):
         False,
         "unusable Greek exposure denominator",
     )
+
+
+def test_bounded_oi_buffer_rejects_nine_identical_or_regressed_timestamps(
+    make_candle, make_option_row, mock_now, mock_date
+):
+    option_chain = [
+        make_option_row(
+            strike,
+            option_type,
+            iv=0.2,
+            gamma=0.3,
+            theta=-0.5,
+            vega=1.0,
+            oi_change=10_000,
+            ltp=150.0,
+        )
+        for strike in range(21650, 22351, 50)
+        for option_type in ("CE", "PE")
+    ]
+    candle = make_candle(
+        22000.0,
+        low=21700.0,
+        high=22300.0,
+        vwap=22000.0,
+    ).model_copy(update={"timestamp": mock_now})
+    candle_buffer = deque([candle] * 15, maxlen=15)
+    iv_buffer = deque([0.2] * 16, maxlen=20)
+    previous_day = PreviousDayLevels(
+        symbol="NIFTY",
+        trade_date=mock_date,
+        prev_day_high=23000.0,
+        prev_day_low=21000.0,
+        fetched_at=mock_now,
+    )
+    config = SessionConfig(
+        symbol="NIFTY",
+        expiry=mock_date,
+        expiry_type="WEEKLY",
+        status="ACTIVE",
+    )
+    oi_flow_buffer = deque(maxlen=8)
+    obsolete_timestamps = [
+        mock_now if index % 2 == 0 else mock_now - timedelta(minutes=1)
+        for index in range(9)
+    ]
+
+    scores = []
+    for observation_timestamp in [mock_now, *obsolete_timestamps]:
+        candle_buffer[-1] = candle.model_copy(
+            update={"timestamp": observation_timestamp}
+        )
+        scores.append(
+            evaluate(
+                option_chain,
+                candle_buffer,
+                iv_buffer,
+                previous_day,
+                22000.0,
+                1,
+                config,
+                oi_flow_buffer=oi_flow_buffer,
+            )
+        )
+
+    assert scores[0].oi_flow_result.stale is False
+    assert all(score.oi_flow_result.stale for score in scores[1:])

@@ -37,6 +37,7 @@ class SessionState:
         self.candle_buffer: deque = deque(maxlen=settings.candle_buffer_size)
         self.iv_buffer: deque = deque(maxlen=settings.iv_buffer_size)
         self.oi_flow_buffer: deque = deque(maxlen=settings.oi_consensus_window)
+        self.last_accepted_oi_timestamp: Optional[datetime] = None
 
         # OI rolling snapshots (15-minute rolling window)
         self.oi_snapshot_buffer: deque = deque(maxlen=settings.oi_lookback_cycles)
@@ -75,6 +76,7 @@ class SessionState:
         self.candle_buffer.clear()
         self.iv_buffer.clear()
         self.oi_flow_buffer.clear()
+        self.last_accepted_oi_timestamp = None
         self.oi_snapshot_buffer.clear()
         self.last_alerted_oi_phase = None
         self.last_oi_event_fingerprint = None
@@ -475,6 +477,7 @@ async def run_cycle() -> None:
             session_config=config,
             previous_status=state.previous_status,
             oi_flow_buffer=state.oi_flow_buffer,
+            last_accepted_timestamp=state.last_accepted_oi_timestamp,
         )
     except Exception as e:
         logger.error(f"Scoring failed: {e}")
@@ -500,6 +503,12 @@ async def run_cycle() -> None:
         state.iv_cap_active = False
 
     oi_result = score.oi_flow_result
+    if (
+        oi_result
+        and not oi_result.stale
+        and oi_result.observation_timestamp is not None
+    ):
+        state.last_accepted_oi_timestamp = oi_result.observation_timestamp
     if oi_result and oi_result.effective_veto and score.status == "GO":
         score.status = "CAUTION"
 

@@ -36,6 +36,9 @@ from kairos.processor import (
 
 IST = ZoneInfo("Asia/Kolkata")
 
+# Standalone callers can reuse a bounded deque without scheduler session state.
+_buffer_last_accepted: dict[int, datetime] = {}
+
 
 def find_atm(
     option_chain: list[OptionChainRow],
@@ -398,6 +401,7 @@ def evaluate(
     session_config: SessionConfig,
     previous_status: Optional[str] = None,
     oi_flow_buffer: Optional[deque] = None,
+    last_accepted_timestamp: Optional[datetime] = None,
 ) -> EnvironmentScore:
     """
     Orchestrates the 7 technical scoring conditions into a unified EnvironmentScore.
@@ -427,11 +431,15 @@ def evaluate(
     :type previous_status: Optional[str]
     :param oi_flow_buffer: Rolling consensus buffer of OIFlowResult objects.
     :type oi_flow_buffer: Optional[collections.deque]
+    :param last_accepted_timestamp: Most recent non-stale OI observation timestamp.
+    :type last_accepted_timestamp: Optional[datetime]
     :return: The aggregated and capped EnvironmentScore ready for database serialization.
     :rtype: EnvironmentScore
     """
     if oi_flow_buffer is None:
         oi_flow_buffer = deque(maxlen=settings.oi_consensus_window)
+    if len(oi_flow_buffer) == 0 and last_accepted_timestamp is None:
+        _buffer_last_accepted.pop(id(oi_flow_buffer), None)
 
     strike_interval = (
         settings.nifty_strike_interval
@@ -471,18 +479,22 @@ def evaluate(
     # Condition 3 raw + consensus filtering (ADR-021)
     c3_oi_raw, oi_flow_result_raw = score_oi_flow(cluster, iv_change_rate, candle_buffer)
     observation_timestamp = candle_buffer[-1].timestamp if candle_buffer else None
-    last_accepted_timestamp = next(
-        (
-            reading.observation_timestamp
-            for reading in reversed(oi_flow_buffer)
-            if reading.observation_timestamp is not None and not reading.stale
-        ),
-        None,
-    )
+    effective_last_accepted_timestamp = last_accepted_timestamp
+    if effective_last_accepted_timestamp is None:
+        effective_last_accepted_timestamp = _buffer_last_accepted.get(id(oi_flow_buffer))
+    if effective_last_accepted_timestamp is None:
+        effective_last_accepted_timestamp = next(
+            (
+                reading.observation_timestamp
+                for reading in reversed(oi_flow_buffer)
+                if reading.observation_timestamp is not None and not reading.stale
+            ),
+            None,
+        )
     if (
         observation_timestamp is not None
-        and last_accepted_timestamp is not None
-        and observation_timestamp <= last_accepted_timestamp
+        and effective_last_accepted_timestamp is not None
+        and observation_timestamp <= effective_last_accepted_timestamp
     ):
         stale_reason = "Stale OI observation — repeated or regressed candle timestamp"
         oi_flow_result_raw = oi_flow_result_raw.model_copy(
@@ -498,6 +510,8 @@ def evaluate(
         )
     else:
         oi_flow_result_raw.observation_timestamp = observation_timestamp
+        if observation_timestamp is not None:
+            _buffer_last_accepted[id(oi_flow_buffer)] = observation_timestamp
     oi_flow_buffer.append(oi_flow_result_raw)
     c3_oi, oi_flow_result = consolidate_oi_flow(oi_flow_buffer)
 

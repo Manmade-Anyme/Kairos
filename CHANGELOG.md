@@ -13,10 +13,27 @@ All notable changes to this project will be documented in this file.
   diagnostics, concise alert evidence, configuration guards, and decoupled
   successful-send condition fingerprints so below-six recoveries and
   deteriorations alert reliably without duplicating successful states.
-- **MANM-103 OI Flow remediation:** made consensus current-first and direction-matched, removed PCR from trade gates, validated the complete active Greek strike grid, corrected Vega exposure normalization, capped GO on effective OI vetoes (including failed consensus), and emitted deduplicated OI events below the score-silencing threshold while retaining the first non-OI low-score transition alert. Preserve incomplete ATM rows for invalid-data gating, validate Greeks only in active scoring strikes, reject repeated or regressed timestamps, retain raw invalid-veto reasons, reject stale/invalid observations before derived vetoes, ignore stale or invalid samples in historical Vega-trap counts, and fingerprint semantic OI categories without diagnostic vote counts. Documented the explicit policy that Short Covering and Long Unwinding remain eligible (overriding the legacy buildup-only checklist).
-- **OI Flow Filter Remediation (Round 8):** Reset `state.is_silenced = False` on every cycle where score is >= 6 to ensure subsequent drops below 6 properly trigger their first transition alert. Appended `(NO TRADE)` to the failed directional consensus reason per ADR-103.
-- **OI Flow Filter Remediation (Round 9):** Persist the last accepted OI observation timestamp in scheduler session state and a bounded-deque fallback so repeated or regressed candles remain stale after the consensus window rolls over.
-- **OI Flow Filter Remediation (Round 11):** Store accepted OI timestamps on each rolling buffer instance rather than by recyclable object ID, and retain specific current OI veto reasons such as theta dominance during consensus consolidation.
+- **MANM-127 QA Coverage Round 2 (`tests/test_qa_coverage_round2.py`):** Added
+  15 new unit tests closing coverage on 19 previously-uncovered lines across
+  five source files:
+  - `config.py` — 6 tests triggering each `ValueError` branch in
+    `validate_momentum_settings` (wrong candle window, non-positive volume
+    lookback, inverted range thresholds, inverted/out-of-range trend counts,
+    and non-finite/negative volume multiplier).
+  - `fetcher.py` — 4 tests: mismatched intraday array lengths → `DhanAPIError`;
+    bad row type skipped via `TypeError`/`ValueError` continue; all rows forming
+    → `DhanAPIError`; zero-volume TWAP fallback returns correct equal-weighted
+    TWAP.
+  - `notifier.py` — 1 test: `httpx.RequestError` on `_post` returns `False`
+    without raising.
+  - `processor.py` — 3 tests: afternoon-session candles accepted by session gate;
+    all-afternoon window does not produce a `session` failed-gate; mixed
+    morning+afternoon window triggers `data_unavailable` / `session` gate.
+  - `scheduler.py` — 1 test: geometry-invalid OHLCVCandle rejected by
+    `upsert_completed_candle` causes `run_cycle` to return early before
+    `evaluate` is called (lines 503-504).
+  Full suite: **198 passed, 0 failed**.
+
 
 ### Changed
 - **Fly.io Deploy: Local Build & Multi-Stage Dockerfile (`fly-deploy.yml`, `Dockerfile`, `.dockerignore`):**

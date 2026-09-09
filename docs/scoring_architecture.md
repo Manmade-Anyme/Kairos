@@ -30,6 +30,8 @@ Based on the current score and specifically the state of the Implied Volatility 
 **Logic:** Ensures the underlying index is actually moving in a uniform direction rather than chopping erratically.
 
 * **Data Source:** Rolling 20-candle OHLCV In-Memory Buffer (strict 1-minute completed candle ingestion with timestamp deduplication; current/incomplete minute is ignored).
+* **Readiness:** The buffer must retain at least `max(momentum_candle_window + 1, momentum_volume_lookback + 1)` candles. A latest completed bar more than two minutes behind the IST cycle timestamp, a gap, invalid OHLCV, or a configured-session boundary crossing returns timestamped **YELLOW / 0** with a data-unavailable diagnostic; it is persisted and can trigger a condition-transition alert.
+* **Sessions:** Momentum classifies bars using the configured `SESSION_1_*` and `SESSION_2_*` IST boundaries, not hard-coded market hours.
 * **Three Checks:**
   1. *Range:* `(Max High - Min Low) / Spot * 100` over the latest 5 completed candles.
   2. *Volume:* The latest completed candle volume must be > 1.5x the average volume of the preceding 15 completed candles (excluding the evaluated candle itself).

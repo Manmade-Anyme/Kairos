@@ -166,6 +166,9 @@ class Settings(BaseSettings):
             raise ValueError("momentum_candle_window must be 5 for the six-close contract")
         if self.momentum_volume_lookback <= 0:
             raise ValueError("momentum_volume_lookback must be positive")
+        required_history = max(self.momentum_candle_window + 1, self.momentum_volume_lookback + 1)
+        if self.candle_buffer_size < required_history:
+            raise ValueError(f"candle_buffer_size must be at least {required_history} for momentum history")
         if not (self.momentum_range_yellow < self.momentum_range_green):
             raise ValueError("momentum range thresholds must be ordered")
         if not (0 < self.momentum_trend_count_yellow < self.momentum_trend_count_green <= 5):

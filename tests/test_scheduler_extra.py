@@ -580,7 +580,7 @@ async def test_run_cycle_oi_rolling_calculation(mock_deps, mocker, make_option_r
 
 
 @pytest.mark.asyncio
-async def test_run_cycle_rejects_stale_candles_before_oi_evaluation(
+async def test_run_cycle_scores_stale_candles_as_data_unavailable(
     mock_deps, mocker, make_candle, make_option_row, mock_now
 ):
     import kairos.engine as engine
@@ -651,9 +651,10 @@ async def test_run_cycle_rejects_stale_candles_before_oi_evaluation(
         for _ in range(10):
             await run_cycle()
 
-        assert sched.evaluate.call_count == 0
-        assert sched.state.last_accepted_oi_timestamp is None
-        assert not sched.state.oi_flow_buffer
+        assert sched.evaluate.call_count == 10
+        momentum = sched.db.write_environment_log.call_args.args[0].get_condition("momentum")
+        assert momentum.status == "YELLOW"
+        assert momentum.diagnostics.failed_gates == ["stale"]
     finally:
         sched.state.reset_buffers()
 

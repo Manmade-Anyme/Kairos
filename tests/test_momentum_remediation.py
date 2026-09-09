@@ -132,6 +132,53 @@ def test_sparse_or_stale_candles_are_data_unavailable_before_scoring():
     assert "gap" in result.diagnostics.failed_gates
 
 
+def test_stale_candle_window_is_data_unavailable_and_identified():
+    window = momentum_window([100, 101, 100.8, 102, 103, 104])
+    now = window[-1].timestamp + timedelta(minutes=3)
+
+    result = score_momentum(window, now=now)
+
+    assert (result.status, result.points) == ("YELLOW", 0)
+    assert result.diagnostics.readiness == "data_unavailable"
+    assert result.diagnostics.failed_gates == ["stale"]
+    assert result.detail.startswith(f"[{window[-1].timestamp:%Y-%m-%d %H:%M}]")
+
+
+def test_momentum_uses_configured_session_boundaries(monkeypatch):
+    from kairos.processor import settings as processor_settings
+
+    monkeypatch.setattr(processor_settings, "session_1_start", (8, 30))
+    monkeypatch.setattr(processor_settings, "session_1_end", (9, 0))
+    window = deque(
+        candle(datetime(2026, 3, 23, 8, 40, tzinfo=IST) + timedelta(minutes=index), 100 + index)
+        for index in range(16)
+    )
+
+    result = score_momentum(window)
+
+    assert "session" not in result.diagnostics.failed_gates
+
+
+@pytest.mark.parametrize("mode", ["history", "session", "gap", "invalid_ohlcv", "zero_baseline"])
+def test_readiness_failures_include_the_evaluated_timestamp(mode):
+    window = momentum_window([100, 101, 100.8, 102, 103, 104])
+    if mode == "history":
+        window = deque(list(window)[-5:])
+    elif mode == "session":
+        window[-1] = candle(datetime(2026, 3, 23, 12, 0, tzinfo=IST), window[-1].close)
+    elif mode == "gap":
+        window[-2] = candle(window[-2].timestamp - timedelta(minutes=1), window[-2].close)
+    elif mode == "invalid_ohlcv":
+        window[-1] = candle(window[-1].timestamp, window[-1].close, float("nan"))
+    else:
+        window = deque(candle(item.timestamp, item.close, 0, item.high, item.low) for item in window)
+
+    result = score_momentum(window)
+
+    assert result.diagnostics.readiness == "data_unavailable"
+    assert result.detail.startswith(f"[{window[-1].timestamp:%Y-%m-%d %H:%M}]")
+
+
 def test_completed_candle_upsert_revisions_and_orders_without_duplicates():
     now = datetime(2026, 3, 23, 10, 5, tzinfo=IST)
     buffer = deque(maxlen=20)

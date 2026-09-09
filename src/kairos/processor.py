@@ -5,7 +5,7 @@ All data comes from in-memory buffers or the current cycle's fetched objects.
 """
 
 from collections import deque
-from datetime import time, timedelta
+from datetime import datetime, time, timedelta
 import math
 
 from kairos.config import settings
@@ -103,15 +103,17 @@ def score_iv_change(iv_buffer: deque, dte: int = 0) -> ConditionResult:
 # Condition 2 — Underlying Momentum + Directional Consistency (max 1 point)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def score_momentum(candle_buffer: deque) -> ConditionResult:
+def score_momentum(candle_buffer: deque, now: datetime | None = None) -> ConditionResult:
     """
     Evaluates underlying momentum using price range, volume spikes, and directional consistency.
     
-    Extracts the last 5 candles to determine if the price is trending cleanly or violently chopping.
-    Checks volume against a 20-candle moving average to confirm institutional participation.
+    Uses six closes for five directional changes, with range measured across the latest five candles.
+    Checks the evaluated candle volume against the preceding configured baseline.
     
     :param candle_buffer: A rolling deque of the last 15 1-minute OHLCVCandle objects.
     :type candle_buffer: collections.deque
+    :param now: Current IST cycle timestamp for stale-data detection.
+    :type now: datetime | None
     :return: A ConditionResult object mapping status (GREEN requires Range > 0.3%, Volume Spike, and >=4/5 trend). Max points: 1.
     :rtype: ConditionResult
     """
@@ -127,29 +129,45 @@ def score_momentum(candle_buffer: deque) -> ConditionResult:
         range_green_threshold=settings.momentum_range_green,
         volume_multiplier=settings.momentum_volume_multiplier,
     )
+    timestamp_label = latest.timestamp.strftime("%Y-%m-%d %H:%M") if latest and latest.timestamp else "unknown"
+    detail_prefix = f"[{timestamp_label}] "
+    if now is not None and latest is not None:
+        if (
+            now.tzinfo is None
+            or latest.timestamp.tzinfo is None
+            or now - latest.timestamp > timedelta(minutes=2)
+        ):
+            diagnostics.readiness = "data_unavailable"
+            diagnostics.failed_gates = ["stale"]
+            return _result("momentum", "YELLOW", 0, 1,
+                           f"{detail_prefix}Data unavailable — stale candle window", diagnostics)
     if len(all_candles) < required:
         diagnostics.readiness = "data_unavailable"
         diagnostics.failed_gates = ["history"]
         return _result("momentum", "YELLOW", 0, 1,
-                       f"Data unavailable — need {required} completed candles", diagnostics)
+                       f"{detail_prefix}Data unavailable — need {required} completed candles", diagnostics)
 
     timestamps = [c.timestamp for c in all_candles[-required:]]
     def session(timestamp):
         minute = timestamp.timetz().replace(tzinfo=None)
-        if time(9, 15) <= minute <= time(11, 45):
+        s1_start = time(*settings.session_1_start)
+        s1_end = time(*settings.session_1_end)
+        s2_start = time(*settings.session_2_start)
+        s2_end = time(*settings.session_2_end)
+        if s1_start <= minute <= s1_end:
             return "morning"
-        if time(13, 0) <= minute <= time(15, 25):
+        if s2_start <= minute <= s2_end:
             return "afternoon"
         return None
     sessions = [session(timestamp) if timestamp.tzinfo is not None else None for timestamp in timestamps]
     if any(value is None for value in sessions) or len(set(sessions)) != 1:
         diagnostics.readiness = "data_unavailable"
         diagnostics.failed_gates = ["session"]
-        return _result("momentum", "YELLOW", 0, 1, "Data unavailable — candle window crosses a session boundary", diagnostics)
+        return _result("momentum", "YELLOW", 0, 1, f"{detail_prefix}Data unavailable — candle window crosses a session boundary", diagnostics)
     if any(right - left != timedelta(minutes=1) for left, right in zip(timestamps, timestamps[1:])):
         diagnostics.readiness = "data_unavailable"
         diagnostics.failed_gates = ["gap"]
-        return _result("momentum", "YELLOW", 0, 1, "Data unavailable — non-consecutive candle window", diagnostics)
+        return _result("momentum", "YELLOW", 0, 1, f"{detail_prefix}Data unavailable — non-consecutive candle window", diagnostics)
 
     recent = all_candles[-(window + 1):]
     baseline = all_candles[-(vol_lookback + 1):-1]
@@ -160,7 +178,7 @@ def score_momentum(candle_buffer: deque) -> ConditionResult:
             or any(volume is None or not math.isfinite(volume) or volume < 0 for volume in volumes)):
         diagnostics.readiness = "data_unavailable"
         diagnostics.failed_gates = ["volume" if any(volume is None or not isinstance(volume, (int, float)) or not math.isfinite(volume) or volume < 0 for volume in volumes) else "ohlc"]
-        return _result("momentum", "YELLOW", 0, 1, "Data unavailable — invalid OHLCV", diagnostics)
+        return _result("momentum", "YELLOW", 0, 1, f"{detail_prefix}Data unavailable — invalid OHLCV", diagnostics)
 
     closes = [c.close for c in recent]
     deltas = [right - left for left, right in zip(closes, closes[1:])]
@@ -184,7 +202,7 @@ def score_momentum(candle_buffer: deque) -> ConditionResult:
     if baseline_average == 0:
         diagnostics.readiness = "data_unavailable"
         diagnostics.failed_gates = ["volume"]
-        return _result("momentum", "YELLOW", 0, 1, "Data unavailable — zero volume baseline", diagnostics)
+        return _result("momentum", "YELLOW", 0, 1, f"{detail_prefix}Data unavailable — zero volume baseline", diagnostics)
     diagnostics.volume_ratio = current_volume / baseline_average
     at_green_boundary = math.isclose(range_pct, settings.momentum_range_green, rel_tol=0.0, abs_tol=1e-9)
     at_red_boundary = math.isclose(range_pct, settings.momentum_range_yellow, rel_tol=0.0, abs_tol=1e-9)

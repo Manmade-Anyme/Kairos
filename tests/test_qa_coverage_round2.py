@@ -80,6 +80,10 @@ class TestValidateMomentumSettings:
         with pytest.raises(ValueError, match="momentum_volume_multiplier must be positive and finite"):
             self._make(momentum_volume_multiplier=-1.0)
 
+    def test_candle_buffer_smaller_than_required_momentum_history_raises(self):
+        with pytest.raises(ValueError, match="candle_buffer_size"):
+            self._make(candle_buffer_size=15, momentum_volume_lookback=15)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. fetcher.py:295,308-309,311,331  — intraday candle paths

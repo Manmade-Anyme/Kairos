@@ -492,11 +492,10 @@ async def run_cycle() -> None:
             return
 
     # 5. Update in-memory buffers
+    now = datetime.now(IST)
     if isinstance(latest_candle, OHLCVCandle):
-        now = datetime.now(IST)
         if now - latest_candle.timestamp > timedelta(minutes=2):
-            logger.warning("Discarding stale one-minute candle")
-            return
+            logger.warning("Scoring stale one-minute candle as data unavailable")
         historical_candles = getattr(fetcher, "last_completed_candles", None)
         candles = historical_candles if isinstance(historical_candles, list) and historical_candles else [latest_candle]
         if not all(upsert_completed_candle(state.candle_buffer, candle, now=now) for candle in candles):
@@ -546,6 +545,7 @@ async def run_cycle() -> None:
             previous_status=state.previous_status,
             oi_flow_buffer=state.oi_flow_buffer,
             last_accepted_timestamp=state.last_accepted_oi_timestamp,
+            now=now,
         )
     except Exception as e:
         logger.error(f"Scoring failed: {e}")

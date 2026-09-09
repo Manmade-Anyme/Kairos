@@ -179,6 +179,11 @@ def score_momentum(candle_buffer: deque, now: datetime | None = None) -> Conditi
         diagnostics.readiness = "data_unavailable"
         diagnostics.failed_gates = ["volume" if any(volume is None or not isinstance(volume, (int, float)) or not math.isfinite(volume) or volume < 0 for volume in volumes) else "ohlc"]
         return _result("momentum", "YELLOW", 0, 1, f"{detail_prefix}Data unavailable — invalid OHLCV", diagnostics)
+    if recent[-1].close <= 0:
+        diagnostics.readiness = "data_unavailable"
+        diagnostics.failed_gates = ["ohlc"]
+        return _result("momentum", "YELLOW", 0, 1,
+                       f"{detail_prefix}Data unavailable — non-positive evaluated close", diagnostics)
 
     closes = [c.close for c in recent]
     deltas = [right - left for left, right in zip(closes, closes[1:])]

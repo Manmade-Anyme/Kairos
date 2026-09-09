@@ -11,6 +11,8 @@ All notable changes to this project will be documented in this file.
   candles are scored and persisted as timestamped data-unavailable results
   rather than abandoning the cycle; session checks now honor configured
   boundaries; all momentum readiness details include the evaluated timestamp.
+  Non-positive evaluated closes now return a timestamped data-unavailable
+  result before range-percentage division.
 - **MANM-127 Momentum filter remediation:** only completed, validated IST
   one-minute candles enter the ordered revision-aware buffer; momentum now
   scores five deltas across six closes, evaluates the latest-five range, and

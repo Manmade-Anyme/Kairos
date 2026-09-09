@@ -144,6 +144,20 @@ def test_stale_candle_window_is_data_unavailable_and_identified():
     assert result.detail.startswith(f"[{window[-1].timestamp:%Y-%m-%d %H:%M}]")
 
 
+def test_zero_evaluated_close_is_timestamped_data_unavailable():
+    window = momentum_window([100, 101, 100.8, 102, 103, 104])
+    latest = window[-1]
+    window[-1] = candle(latest.timestamp, 0, latest.volume, high=0, low=0)
+
+    result = score_momentum(window)
+
+    assert (result.status, result.points) == ("YELLOW", 0)
+    assert result.diagnostics.readiness == "data_unavailable"
+    assert result.diagnostics.failed_gates == ["ohlc"]
+    assert result.detail.startswith(f"[{latest.timestamp:%Y-%m-%d %H:%M}]")
+    assert "non-positive evaluated close" in result.detail
+
+
 def test_momentum_uses_configured_session_boundaries(monkeypatch):
     from kairos.processor import settings as processor_settings
 

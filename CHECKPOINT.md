@@ -1,27 +1,24 @@
 # Session Checkpoint
 **Date:** 2026-09-09
-**Session:** #6 (Graph Blocked: Provider Quota Limit on Code Generator Agent)
+**Session:** #7 (Unblocked: Code Generator Model Switched -> QA Correction Round 2 Resumed)
 
 ## Completed This Session
-- Stage 1 Architecture: PASS by Software Architect
-- Stage 2 Implementation: PASS by Code Generator Agent (PR #16 created, 183 tests pass)
-- Stage 3 Documentation: PASS by Documentation Agent (docs and Obsidian synced)
-- Stage 4 PR Review: PASS by PR Reviewer Agent
-- Stage 4 QA Verification: FAIL (19 uncovered lines)
+- Human updated Code Generator Agent to `claude-sonnet-4-6` on Antigravity runtime (`6e209504-710e-4199-9f6c-290cc2d6e12e`)
+- Quota blocker resolved; graph unblocked to `in_progress`
 
 ## Open Tasks
-- TASK-127 (MANM-127) Fix momentum filter — status: BLOCKED
-  - Blocker: Code Generator Agent hit OpenAI/Codex usage quota limit (agent_error.provider_quota_limit until 2:35 PM).
-  - Pending action: Human escalation to switch runtime/model or add credits.
+- TASK-127 (MANM-127) Fix momentum filter — assigned to Engineering Delivery Graph, status: in_progress
+  - Code Generator Agent: QA Correction Round 2 (add tests to achieve 100% coverage on 19 uncovered lines)
+  - QA Agent: Re-run verification on Round 2 completion
 
 ## Blockers
-- Code Generator Agent provider quota exhausted on Codex runtime (gpt-5.6-terra). Requires human input to switch runtime or re-enable.
+- None (resolved)
 
 ## Agent States
-- Project Manager: Marked graph blocked; escalated to Mika and Shantanu Dubey
+- Project Manager: Unblocked graph; redispatched QA Round 2 to Code Generator Agent
 - PR Reviewer Agent: PASS (Round 1)
-- QA Agent: FAIL (Round 1, 19 uncovered lines)
-- Code Generator: BLOCKED (provider quota limit)
+- QA Agent: Pending Round 2 completion
+- Code Generator: Active / dispatched for QA Round 2 coverage correction (`claude-sonnet-4-6`)
 
 ## Resume Instructions
-Upon human resolution of Code Generator runtime/credits, re-dispatch Code Generator Agent to complete the 19 uncovered test lines and request QA re-verification.
+Code Generator Agent to add unit tests covering the 19 lines identified by QA Agent, verify 100% coverage on modified lines, push to `feature/MANM-127-fix-momentum-filter`, and return H1 PASS on MANM-127.

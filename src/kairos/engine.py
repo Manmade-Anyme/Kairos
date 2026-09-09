@@ -36,8 +36,15 @@ from kairos.processor import (
 
 IST = ZoneInfo("Asia/Kolkata")
 
-# Standalone callers can reuse a bounded deque without scheduler session state.
-_buffer_last_accepted: dict[int, datetime] = {}
+
+class OIFlowBuffer(deque):
+    """Rolling OI readings with timestamp state owned by this buffer instance."""
+
+    last_accepted_timestamp: Optional[datetime]
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.last_accepted_timestamp = None
 
 
 def find_atm(
@@ -437,9 +444,7 @@ def evaluate(
     :rtype: EnvironmentScore
     """
     if oi_flow_buffer is None:
-        oi_flow_buffer = deque(maxlen=settings.oi_consensus_window)
-    if len(oi_flow_buffer) == 0 and last_accepted_timestamp is None:
-        _buffer_last_accepted.pop(id(oi_flow_buffer), None)
+        oi_flow_buffer = OIFlowBuffer(maxlen=settings.oi_consensus_window)
 
     strike_interval = (
         settings.nifty_strike_interval
@@ -481,7 +486,9 @@ def evaluate(
     observation_timestamp = candle_buffer[-1].timestamp if candle_buffer else None
     effective_last_accepted_timestamp = last_accepted_timestamp
     if effective_last_accepted_timestamp is None:
-        effective_last_accepted_timestamp = _buffer_last_accepted.get(id(oi_flow_buffer))
+        effective_last_accepted_timestamp = getattr(
+            oi_flow_buffer, "last_accepted_timestamp", None
+        )
     if effective_last_accepted_timestamp is None:
         effective_last_accepted_timestamp = next(
             (
@@ -510,8 +517,10 @@ def evaluate(
         )
     else:
         oi_flow_result_raw.observation_timestamp = observation_timestamp
-        if observation_timestamp is not None:
-            _buffer_last_accepted[id(oi_flow_buffer)] = observation_timestamp
+        if observation_timestamp is not None and hasattr(
+            oi_flow_buffer, "last_accepted_timestamp"
+        ):
+            oi_flow_buffer.last_accepted_timestamp = observation_timestamp
     oi_flow_buffer.append(oi_flow_result_raw)
     c3_oi, oi_flow_result = consolidate_oi_flow(oi_flow_buffer)
 

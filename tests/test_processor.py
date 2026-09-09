@@ -196,3 +196,31 @@ def test_warmup_effective_veto_enforced(make_cluster):
     assert c_oi2.effective_veto is True
     assert "NO TRADE" in c_oi2.veto_reason
     assert c_oi2.score == 0
+
+
+def test_consolidate_oi_flow_preserves_theta_dominance_veto_reason():
+    from kairos.models import OIFlowResult, TrendPhase
+    from kairos.processor import consolidate_oi_flow
+
+    theta_reason = "Theta dominant — writers entrenched, premium decay accelerating"
+    condition, result = consolidate_oi_flow(
+        deque(
+            [
+                OIFlowResult(
+                    score=0,
+                    phase=TrendPhase.LONG_BUILDUP,
+                    reason=theta_reason,
+                    gex_state="trend",
+                    nde_state="neutral",
+                    vega_trap=False,
+                    pcr=1.0,
+                    iv_skew=0.0,
+                    veto_reason=theta_reason,
+                )
+            ]
+        )
+    )
+
+    assert condition.detail == f"Current {theta_reason} — NO TRADE"
+    assert result.reason == condition.detail
+    assert result.veto_reason == condition.detail

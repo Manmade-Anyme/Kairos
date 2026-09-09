@@ -17,7 +17,7 @@ from loguru import logger
 
 from kairos.config import settings
 from kairos.db import db, load_dhan_credentials_from_supabase
-from kairos.engine import evaluate
+from kairos.engine import OIFlowBuffer, evaluate
 from kairos.fetcher import DhanAPIError, DhanAuthError, fetcher
 from kairos.models import PreviousDayLevels, SessionConfig
 from kairos.notifier import notifier
@@ -36,7 +36,9 @@ class SessionState:
         # In-memory rolling buffers
         self.candle_buffer: deque = deque(maxlen=settings.candle_buffer_size)
         self.iv_buffer: deque = deque(maxlen=settings.iv_buffer_size)
-        self.oi_flow_buffer: deque = deque(maxlen=settings.oi_consensus_window)
+        self.oi_flow_buffer: OIFlowBuffer = OIFlowBuffer(
+            maxlen=settings.oi_consensus_window
+        )
         self.last_accepted_oi_timestamp: Optional[datetime] = None
 
         # OI rolling snapshots (15-minute rolling window)
@@ -75,7 +77,7 @@ class SessionState:
         """Reset all in-memory state when a new session starts."""
         self.candle_buffer.clear()
         self.iv_buffer.clear()
-        self.oi_flow_buffer.clear()
+        self.oi_flow_buffer = OIFlowBuffer(maxlen=settings.oi_consensus_window)
         self.last_accepted_oi_timestamp = None
         self.oi_snapshot_buffer.clear()
         self.last_alerted_oi_phase = None

@@ -445,7 +445,11 @@ def consolidate_oi_flow(
     elif _phase_direction(latest.phase) is None:
         current_failure = "Neutral or ineligible OI phase"
     elif latest.nde_state != "confirms":
-        current_failure = "NDE does not confirm the current direction"
+        current_failure = (
+            latest.veto_reason
+            or latest.reason
+            or "NDE does not confirm the current direction"
+        )
     elif latest.effective_veto or latest.score == 0:
         current_failure = latest.veto_reason or latest.reason
     else:

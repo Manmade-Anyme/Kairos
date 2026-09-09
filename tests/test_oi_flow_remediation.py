@@ -3,7 +3,7 @@
 from collections import deque
 from datetime import timedelta
 
-from kairos.engine import compute_greeks_aggregates, evaluate
+from kairos.engine import OIFlowBuffer, compute_greeks_aggregates, evaluate
 from kairos.models import OIFlowResult, PreviousDayLevels, SessionConfig, TrendPhase
 from kairos.processor import consolidate_oi_flow, score_oi_flow
 
@@ -346,7 +346,7 @@ def test_bounded_oi_buffer_rejects_nine_identical_or_regressed_timestamps(
         expiry_type="WEEKLY",
         status="ACTIVE",
     )
-    oi_flow_buffer = deque(maxlen=8)
+    oi_flow_buffer = OIFlowBuffer(maxlen=8)
     obsolete_timestamps = [
         mock_now if index % 2 == 0 else mock_now - timedelta(minutes=1)
         for index in range(9)
@@ -372,6 +372,17 @@ def test_bounded_oi_buffer_rejects_nine_identical_or_regressed_timestamps(
 
     assert scores[0].oi_flow_result.stale is False
     assert all(score.oi_flow_result.stale for score in scores[1:])
+
+
+def test_oi_flow_buffers_keep_accepted_timestamps_instance_local(mock_now):
+    first_buffer = OIFlowBuffer(maxlen=8)
+    second_buffer = OIFlowBuffer(maxlen=8)
+
+    first_buffer.last_accepted_timestamp = mock_now
+
+    assert first_buffer.last_accepted_timestamp == mock_now
+    assert second_buffer.last_accepted_timestamp is None
+
 
 def test_warmup_caps_score_to_caution(make_option_row, make_candle, mock_now, mock_date, monkeypatch):
     """

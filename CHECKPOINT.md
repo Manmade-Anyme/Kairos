@@ -1,28 +1,24 @@
 # Session Checkpoint
 **Date:** 2026-09-09
-**Session:** #4 (Stage 3 Documentation Complete -> Stage 4 PR Review & QA Dispatched)
+**Session:** #5 (Stage 4 PR Review Passed / QA Coverage Failed -> Code Generator QA Correction Round 2)
 
 ## Completed This Session
-- Stage 3 Documentation completed by Documentation Agent
-  - Commit: `9e070bc`
-  - Updated: `docs/scoring_architecture.md`, `CHANGELOG.md`
-  - Synced to Obsidian: `~/Documents/Obsidian/Kairos Scoring Architecture.md`, `~/Documents/Obsidian/Kairos CHANGELOG.md`
+- Stage 4 PR Review: PASS (Round 1) by PR Reviewer Agent
+- Stage 4 QA Verification: FAIL (Round 1) by QA Agent (19 uncovered modified lines)
 
 ## Open Tasks
 - TASK-127 (MANM-127) Fix momentum filter — assigned to Engineering Delivery Graph, status: in_progress
-  - Stage 4: PR Reviewer Agent (Spec/ADR & Standards review on PR #16)
-  - Stage 4: QA Agent (Test execution & coverage verification on PR #16)
+  - Code Generator Agent: QA Correction Round 2 (add tests to achieve 100% coverage on 19 uncovered lines)
+  - QA Agent: Re-run verification on Round 2 completion
 
 ## Blockers
-- None
+- None (within loop limits: QA Round 2 of 2)
 
 ## Agent States
-- Project Manager: Evaluated Stage 3 H1 PASS; dispatched Stage 4 in parallel to PR Reviewer and QA Agent
-- Software Architect: Stage 1 complete (PASS)
-- Code Generator: Stage 2 complete (PASS, PR #16 open)
-- Documentation Agent: Stage 3 complete (PASS)
-- PR Reviewer Agent: Active / dispatched for Stage 4 review
-- QA Agent: Active / dispatched for Stage 4 verification
+- Project Manager: Dispatched QA Round 2 correction to Code Generator Agent
+- PR Reviewer Agent: PASS (Round 1)
+- QA Agent: FAIL (Round 1, 19 uncovered lines)
+- Code Generator: Active / dispatched for QA Round 2 coverage correction
 
 ## Resume Instructions
-Wait for parallel H1 results from PR Reviewer Agent and QA Agent on MANM-127. If both return PASS, transition to human gate.
+Code Generator Agent to add unit tests covering the 19 lines identified by QA Agent, verify 100% coverage on modified lines, push to `feature/MANM-127-fix-momentum-filter`, and return H1 PASS on MANM-127.

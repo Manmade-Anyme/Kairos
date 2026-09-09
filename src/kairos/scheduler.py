@@ -17,7 +17,7 @@ from loguru import logger
 
 from kairos.config import settings
 from kairos.db import db, load_dhan_credentials_from_supabase
-from kairos.engine import evaluate
+from kairos.engine import OIFlowBuffer, evaluate
 from kairos.fetcher import DhanAPIError, DhanAuthError, fetcher
 from kairos.models import PreviousDayLevels, SessionConfig
 from kairos.notifier import notifier
@@ -36,11 +36,15 @@ class SessionState:
         # In-memory rolling buffers
         self.candle_buffer: deque = deque(maxlen=settings.candle_buffer_size)
         self.iv_buffer: deque = deque(maxlen=settings.iv_buffer_size)
-        self.oi_flow_buffer: deque = deque(maxlen=settings.oi_consensus_window)
+        self.oi_flow_buffer: OIFlowBuffer = OIFlowBuffer(
+            maxlen=settings.oi_consensus_window
+        )
+        self.last_accepted_oi_timestamp: Optional[datetime] = None
 
         # OI rolling snapshots (15-minute rolling window)
         self.oi_snapshot_buffer: deque = deque(maxlen=settings.oi_lookback_cycles)
         self.last_alerted_oi_phase: Optional[str] = None
+        self.last_oi_event_fingerprint: Optional[tuple] = None
 
         # Session tracking
         self.active_config: Optional[SessionConfig] = None
@@ -73,9 +77,11 @@ class SessionState:
         """Reset all in-memory state when a new session starts."""
         self.candle_buffer.clear()
         self.iv_buffer.clear()
-        self.oi_flow_buffer.clear()
+        self.oi_flow_buffer = OIFlowBuffer(maxlen=settings.oi_consensus_window)
+        self.last_accepted_oi_timestamp = None
         self.oi_snapshot_buffer.clear()
         self.last_alerted_oi_phase = None
+        self.last_oi_event_fingerprint = None
         self.cycle_count = 0
         self.warmup_complete = False
         self.previous_status = None
@@ -473,6 +479,7 @@ async def run_cycle() -> None:
             session_config=config,
             previous_status=state.previous_status,
             oi_flow_buffer=state.oi_flow_buffer,
+            last_accepted_timestamp=state.last_accepted_oi_timestamp,
         )
     except Exception as e:
         logger.error(f"Scoring failed: {e}")
@@ -497,6 +504,16 @@ async def run_cycle() -> None:
         # Either cap was never active, or IV recovered to GREEN — release
         state.iv_cap_active = False
 
+    oi_result = score.oi_flow_result
+    if (
+        oi_result
+        and not oi_result.stale
+        and oi_result.observation_timestamp is not None
+    ):
+        state.last_accepted_oi_timestamp = oi_result.observation_timestamp
+    if oi_result and oi_result.effective_veto and score.status == "GO":
+        score.status = "CAUTION"
+
     # 10. Write to Supabase
     await db.write_environment_log(score)
     state.last_successful_cycle_time = datetime.now(IST)
@@ -505,11 +522,35 @@ async def run_cycle() -> None:
 
     # Detect significant changes: Status, Color, or OI Phase shifts (ADR-017)
     significant_change = False
-    current_oi_phase = None
+    current_oi_phase = oi_result.phase.value if oi_result else None
 
-    for c in score.conditions:
-        if c.name == "oi_flow":
-            current_oi_phase = c.detail.split('|')[0].strip() if '|' in c.detail else c.detail
+    if current_oi_phase is None:
+        for c in score.conditions:
+            if c.name == "oi_flow":
+                current_oi_phase = c.detail.split('|')[0].strip() if '|' in c.detail else c.detail
+
+    oi_fingerprint = None
+    if oi_result:
+        if oi_result.reason.startswith("Mixed signals — directional consensus not met"):
+            oi_reason_category = "directional consensus not met"
+        elif oi_result.reason.startswith("Historical recovery hold"):
+            oi_reason_category = "historical recovery hold"
+        elif oi_result.reason.startswith("Unified ") and " conviction (Consensus " in oi_result.reason:
+            oi_reason_category = "directional consensus"
+        else:
+            oi_reason_category = oi_result.reason
+        oi_fingerprint = (
+            oi_result.score,
+            oi_result.phase.value,
+            oi_result.gex_state,
+            oi_result.nde_state,
+            oi_result.vega_trap,
+            oi_result.data_valid,
+            oi_result.stale,
+            oi_result.effective_veto,
+            oi_reason_category,
+        )
+    oi_event_changed = oi_fingerprint != state.last_oi_event_fingerprint
 
     if state.previous_conditions:
         if len(state.previous_conditions) != len(score.conditions):
@@ -527,16 +568,17 @@ async def run_cycle() -> None:
     elif score.conditions:
         significant_change = True  # First cycle with scoring data
 
-    if (score.state_changed or just_warmed_up or significant_change) and state.warmup_complete:
-        should_alert = False
+    if (score.state_changed or just_warmed_up or significant_change or oi_event_changed) and state.warmup_complete:
+        should_alert = oi_event_changed
 
         if score.score >= 6:
             state.is_silenced = False
+
+        if not should_alert and score.score >= 6:
             should_alert = True
-        else:
-            if not state.is_silenced:
-                state.is_silenced = True
-                should_alert = True
+        elif not should_alert and not state.is_silenced:
+            state.is_silenced = True
+            should_alert = True
 
         if should_alert:
             if score.state_changed:
@@ -547,6 +589,8 @@ async def run_cycle() -> None:
             
             if current_oi_phase:
                 state.last_alerted_oi_phase = current_oi_phase
+            if oi_fingerprint is not None:
+                state.last_oi_event_fingerprint = oi_fingerprint
 
             # Post environment alert for significant shifts
             await notifier.post_environment_alert(score)

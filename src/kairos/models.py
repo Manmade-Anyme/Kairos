@@ -41,6 +41,7 @@ class OptionChainRow(BaseModel):
     ltp: float                   # last traded price
     bid: float
     ask: float
+    greeks_complete: bool = True
 
     @field_validator("option_type")
     @classmethod
@@ -193,6 +194,8 @@ class StrikeCluster(BaseModel):
     total_abs_gex: float = 0.0
     total_abs_nde: float = 0.0
     total_abs_vega: float = 0.0
+    data_valid: bool = True
+    data_invalid_reason: Optional[str] = None
 
 
 class ConditionResult(BaseModel):
@@ -238,6 +241,13 @@ class OIFlowResult(BaseModel):
     pe_wall_oi_cr: Optional[float] = None
     pe_unwind_above_spot: bool = False
     ce_unwind_below_spot: bool = False
+    data_valid: bool = True
+    stale: bool = False
+    warmup: bool = False
+    observation_timestamp: Optional[datetime] = None
+    # True for an immediate current-reading veto or a retained trap hold.
+    effective_veto: bool = False
+    veto_reason: Optional[str] = None
 
 
 class EnvironmentScore(BaseModel):

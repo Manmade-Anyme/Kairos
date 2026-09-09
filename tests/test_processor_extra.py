@@ -77,7 +77,8 @@ def test_score_oi_flow_warmup(make_cluster):
     # Insufficient candles for oi_lookback_cycles (6)
     res_cond, res_oi = score_oi_flow(make_cluster(22000), 0.0, deque())
     assert res_cond.status == "YELLOW"
-    assert res_oi.reason == "Warming up"
+    assert "NO TRADE" in res_oi.reason
+    assert res_oi.effective_veto is True
 
 def test_score_oi_flow_vega_trap(make_cluster, make_candle):
     cluster = make_cluster(22000, ce_oi_change=10000, pe_oi_change=10000)
@@ -99,13 +100,13 @@ def test_score_oi_flow_nde_contradicts(make_cluster, make_candle):
     assert "NDE contradicts phase" in res_oi.reason
 
 def test_score_oi_flow_fallback(make_cluster, make_candle):
-    # Mixed signals fallback (line 345)
+    # Ambiguous NDE is a current veto.
     cluster = make_cluster(22000, ce_oi_change=10000, pe_oi_change=10000)
     cluster.price_change = 10.0 # Bullish
-    cluster.pcr = 0.8 # < 1.05 (threshold) -> pcr_confirms False
+    cluster.pcr = 0.8 # Passive telemetry only.
     buf = deque([make_candle(22000)] * 10, maxlen=15)
     res_cond, res_oi = score_oi_flow(cluster, 0.5, buf)
-    assert "Mixed signals" in res_oi.reason
+    assert "NDE ambiguous" in res_oi.reason
 
 def test_score_gamma_theta_exact_red(make_atm):
     # ratio <= yellow_thresh (line 420)

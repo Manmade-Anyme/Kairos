@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Changed
+
+- **MANM-103 OI Flow remediation:** made consensus current-first and direction-matched, removed PCR from trade gates, validated the complete active Greek strike grid, corrected Vega exposure normalization, capped GO on effective OI vetoes (including failed consensus), and emitted deduplicated OI events below the score-silencing threshold while retaining the first non-OI low-score transition alert. Preserve incomplete ATM rows for invalid-data gating, validate Greeks only in active scoring strikes, reject repeated or regressed timestamps, retain raw invalid-veto reasons, reject stale/invalid observations before derived vetoes, ignore stale or invalid samples in historical Vega-trap counts, and fingerprint semantic OI categories without diagnostic vote counts. Documented the explicit policy that Short Covering and Long Unwinding remain eligible (overriding the legacy buildup-only checklist).
+- **OI Flow Filter Remediation (Round 8):** Reset `state.is_silenced = False` on every cycle where score is >= 6 to ensure subsequent drops below 6 properly trigger their first transition alert. Appended `(NO TRADE)` to the failed directional consensus reason per ADR-103.
+- **OI Flow Filter Remediation (Round 9):** Persist the last accepted OI observation timestamp in scheduler session state and a bounded-deque fallback so repeated or regressed candles remain stale after the consensus window rolls over.
+- **OI Flow Filter Remediation (Round 11):** Store accepted OI timestamps on each rolling buffer instance rather than by recyclable object ID, and retain specific current OI veto reasons such as theta dominance during consensus consolidation.
+
+### Changed
 - **Fly.io Deploy: Local Build & Multi-Stage Dockerfile (`fly-deploy.yml`, `Dockerfile`, `.dockerignore`):**
   - Removed `--remote-only` flag from `flyctl deploy` to switch to local build (Depot remote builder was timing out).
   - Switched Dockerfile to multi-stage build (builder + runtime stages) for a smaller final image.
@@ -79,6 +86,10 @@ All notable changes to this project will be documented in this file.
   - Documented in `directives/adr/ADR-013_lunch_break_alert.md`.
 
 ### Fixed
+- **OI Flow Warmup State — Cap Tradeable Status (`processor.py`, `engine.py`):**
+  - Root cause: Warmup branches in `score_oi_flow` and `consolidate_oi_flow` previously emitted `effective_veto=False`. This allowed the scoring engine to emit a tradeable `GO` state if the other six conditions generated a 7/8 score while OI was still warming up (e.g. cycle 15 where IV needs 15 but OI needs 16).
+  - Fix: Enforced `effective_veto=True` on all warmup `OIFlowResult` branches and appended `— NO TRADE` to the veto reasons. This ensures that any `GO` score achieved during warmup is correctly capped to `CAUTION`.
+  - Added regression tests verifying the `effective_veto` cap logic.
 - **IV Flickering — Anti-Flap Hysteresis (`scheduler.py`, `config.py`):**
   - Root cause: Tiny fluctuations in IV change around zero caused the IV cap to toggle on/off every minute, resulting in an alternating `AVOID`→`CAUTION` status loop.
   - Fix: Implemented hysteresis logic where the IV cap, once triggered, is only released if IV recovers by `>= 0.30`.

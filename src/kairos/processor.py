@@ -196,6 +196,15 @@ def _classify_phase(
     return TrendPhase.NEUTRAL
 
 
+def _phase_direction(phase: TrendPhase) -> str | None:
+    """Map eligible OI phases to the direction used by consensus voting."""
+    if phase in (TrendPhase.LONG_BUILDUP, TrendPhase.SHORT_COVERING):
+        return "bullish"
+    if phase in (TrendPhase.SHORT_BUILDUP, TrendPhase.LONG_UNWINDING):
+        return "bearish"
+    return None
+
+
 def score_oi_flow(
     cluster: StrikeCluster,
     iv_change_rate: float,
@@ -205,7 +214,7 @@ def score_oi_flow(
     Upgraded Condition 3: Full-chain Greeks-aware OI Flow scoring engine.
 
     Evaluates GEX (gamma exposure), NDE (net delta exposure), vega trap,
-    PCR, and theta dominance alongside the existing phase classification
+    and theta dominance alongside the existing phase classification
     to produce a conviction score.
 
     Returns:
@@ -213,11 +222,12 @@ def score_oi_flow(
     """
     lookback = settings.oi_lookback_cycles
     if len(candle_buffer) < lookback:
-        warmup_result = _caution("oi_flow", 1, f"Warming up — {lookback} candles needed for trend phase")
+        reason = f"Warming up — {lookback} candles needed for trend phase — NO TRADE"
+        warmup_result = _caution("oi_flow", 1, reason)
         warmup_oi = OIFlowResult(
             score=0,
             phase=TrendPhase.NEUTRAL,
-            reason="Warming up",
+            reason=reason,
             gex_state="neutral",
             nde_state="neutral",
             vega_trap=False,
@@ -229,6 +239,10 @@ def score_oi_flow(
             pe_wall_oi_cr=cluster.pe_wall_oi_cr,
             pe_unwind_above_spot=cluster.pe_unwind_above_spot,
             ce_unwind_below_spot=cluster.ce_unwind_below_spot,
+            data_valid=False,
+            warmup=True,
+            effective_veto=True,
+            veto_reason=reason,
         )
         return warmup_result, warmup_oi
 
@@ -238,9 +252,10 @@ def score_oi_flow(
         cluster.total_pe_oi_change,
         cluster.price_change,
     )
-    phase_is_bearish = phase in (TrendPhase.SHORT_BUILDUP, TrendPhase.LONG_UNWINDING)
-    phase_is_bullish = phase in (TrendPhase.LONG_BUILDUP, TrendPhase.SHORT_COVERING)
-    phase_is_neutral = phase == TrendPhase.NEUTRAL
+    direction = _phase_direction(phase)
+    phase_is_bearish = direction == "bearish"
+    phase_is_bullish = direction == "bullish"
+    phase_is_neutral = direction is None
 
     # ── STEP 2: GEX gate ────────────────────────────────────────────────
     gex_threshold = cluster.total_abs_gex * settings.gex_pin_pct
@@ -276,16 +291,10 @@ def score_oi_flow(
         and iv_change_rate < settings.vega_trap_iv_threshold
     )
 
-    # ── STEP 5: PCR confirmation ────────────────────────────────────────
-    pcr_confirms = (
-        (phase_is_bearish and cluster.pcr < settings.pcr_bearish_threshold)
-        or (phase_is_bullish and cluster.pcr > settings.pcr_bullish_threshold)
-    )
-
-    # ── STEP 6: Theta dominance ─────────────────────────────────────────
+    # ── STEP 5: Theta dominance ─────────────────────────────────────────
     theta_dominant = cluster.theta_burn_rate > settings.theta_dominant_threshold
 
-    # ── STEP 7: Score assembly (priority order) ─────────────────────────
+    # ── STEP 6: Score assembly (priority order) ─────────────────────────
     # Common kwargs for OIFlowResult construction
     common = dict(
         gex_state=gex_state,
@@ -299,19 +308,40 @@ def score_oi_flow(
         pe_wall_oi_cr=cluster.pe_wall_oi_cr,
         pe_unwind_above_spot=cluster.pe_unwind_above_spot,
         ce_unwind_below_spot=cluster.ce_unwind_below_spot,
+        data_valid=cluster.data_valid,
     )
 
-    def _make_result(score: int, reason: str) -> tuple[ConditionResult, OIFlowResult]:
+    def _make_result(
+        score: int,
+        reason: str,
+        *,
+        effective_veto: bool | None = None,
+    ) -> tuple[ConditionResult, OIFlowResult]:
         status = "GREEN" if score == 1 else "RED"
-        oi_result = OIFlowResult(score=score, phase=phase, reason=reason, **common)
+        if effective_veto is None:
+            effective_veto = score == 0
+        oi_result = OIFlowResult(
+            score=score,
+            phase=phase,
+            reason=reason,
+            effective_veto=effective_veto,
+            veto_reason=reason if effective_veto else None,
+            **common,
+        )
         cond_result = _result("oi_flow", status, score, 1, reason)
         return cond_result, oi_result
+
+    if not cluster.data_valid:
+        return _make_result(
+            0,
+            f"Invalid OI data — {cluster.data_invalid_reason or 'missing or unusable Greeks'}",
+        )
 
     # RULE B (highest priority): Vega trap → score=0
     if vega_trap:
         return _make_result(
             0,
-            f"Vega trap — IV contracting ({iv_change_rate:+.2f}%) into high premium exposure",
+            f"Vega trap — IV contracting ({iv_change_rate:+.3f} IV points) into high premium exposure",
         )
 
     # RULE C (second priority): NDE contradiction → score=0
@@ -343,12 +373,17 @@ def score_oi_flow(
             "Theta dominant — writers entrenched, premium decay accelerating",
         )
 
-    # RULE D: ALL conditions must pass for score=1
-    if gex_state == "trend" and nde_state == "confirms" and pcr_confirms:
-        direction = "bearish" if phase_is_bearish else "bullish"
+    if nde_state == "neutral":
+        return _make_result(
+            0,
+            "NDE ambiguous — no directional confirmation",
+        )
+
+    # RULE D: Valid GEX trend or neutral plus NDE confirmation qualify.
+    if gex_state in ("trend", "neutral") and nde_state == "confirms":
         return _make_result(
             1,
-            f"Unified {direction} conviction — GEX trending, NDE confirms, PCR aligned",
+            f"Unified {direction} conviction — GEX {gex_state}, NDE confirms",
         )
 
     # Default fallback → score=0
@@ -371,82 +406,122 @@ def consolidate_oi_flow(
     """
     if not buffer:
         # Fallback if buffer is empty
+        fallback_reason = "Warming up — NO TRADE"
         fallback_oi = OIFlowResult(
             score=0,
             phase=TrendPhase.NEUTRAL,
-            reason="Warming up",
+            reason=fallback_reason,
             gex_state="neutral",
             nde_state="neutral",
             vega_trap=False,
             pcr=1.0,
             iv_skew=0.0,
+            effective_veto=True,
+            veto_reason=fallback_reason,
         )
-        fallback_cond = _result("oi_flow", "YELLOW", 0, 1, "Warming up")
+        fallback_cond = _result("oi_flow", "YELLOW", 0, 1, fallback_reason)
         return fallback_cond, fallback_oi
 
-    # The most recent reading (T-0) carries the latest snapshot values (pcr, skew, walls, etc.)
+    # The latest reading is the current risk and display snapshot.
     latest = buffer[-1]
+    if latest.warmup:
+        warmup_reason = latest.veto_reason or "Warming up — NO TRADE"
+        warmup = latest.model_copy(update={
+            "score": 0,
+            "reason": warmup_reason,
+            "effective_veto": True,
+            "veto_reason": warmup_reason,
+        })
+        return _result("oi_flow", "YELLOW", 0, 1, warmup.reason), warmup
 
-    # 1. Count green cycles in the buffer
-    green_count = sum(1 for r in buffer if r.score == 1)
-
-    # 2. Safety overrides: check if traps are active in >= threshold cycles
-    vega_trap_count = sum(1 for r in buffer if r.vega_trap)
-    gex_pin_count = sum(1 for r in buffer if r.gex_state == "pin")
-
-    # 3. Determine consensus phase (mode / most common phase in buffer)
-    phases = [r.phase for r in buffer]
-    # Find unique phases in order of appearance (most recent first)
-    unique_phases = []
-    for p in reversed(phases):
-        if p not in unique_phases:
-            unique_phases.append(p)
-    most_common_phase = max(unique_phases, key=phases.count)
-
-    phase_is_bearish = most_common_phase in (TrendPhase.SHORT_BUILDUP, TrendPhase.LONG_UNWINDING)
-    phase_is_neutral = most_common_phase == TrendPhase.NEUTRAL
-
-    # Determine final score and reason
-    if vega_trap_count >= settings.oi_consensus_trap_threshold:
-        score_val = 0
-        reason = f"Vega trap active ({vega_trap_count}/{len(buffer)} cycles) — IV contracting into high premium exposure"
-    elif gex_pin_count >= settings.oi_consensus_trap_threshold:
-        score_val = 0
-        reason = f"GEX pin active ({gex_pin_count}/{len(buffer)} cycles) — dealers absorbing moves"
-    elif green_count >= settings.oi_consensus_green_threshold:
-        score_val = 1
-        direction = "bearish" if phase_is_bearish else "bullish"
-        reason = f"Unified {direction} conviction (Consensus {green_count}/{len(buffer)}) — GEX trending, NDE confirms, PCR aligned"
+    if latest.stale:
+        current_failure = "Stale OI observation"
+    elif not latest.data_valid:
+        current_failure = latest.veto_reason or latest.reason or "Invalid OI data"
+    elif latest.vega_trap:
+        current_failure = "Vega trap active"
+    elif latest.gex_state == "pin":
+        current_failure = "GEX pin active"
+    elif _phase_direction(latest.phase) is None:
+        current_failure = "Neutral or ineligible OI phase"
+    elif latest.nde_state != "confirms":
+        current_failure = (
+            latest.veto_reason
+            or latest.reason
+            or "NDE does not confirm the current direction"
+        )
+    elif latest.effective_veto or latest.score == 0:
+        current_failure = latest.veto_reason or latest.reason
     else:
-        score_val = 0
-        if phase_is_neutral:
-            reason = f"Neutral phase — low OI participation, no directional conviction ({green_count}/{len(buffer)} green)"
-        elif most_common_phase in (TrendPhase.SHORT_COVERING, TrendPhase.LONG_UNWINDING):
-            reason = f"Pullback phase ({most_common_phase.value}) — avoid trading ({green_count}/{len(buffer)} green)"
-        else:
-            reason = f"Mixed signals — consensus not met ({green_count}/{len(buffer)} green cycles)"
+        current_failure = None
 
-    status = "GREEN" if score_val == 1 else "RED"
-    cond_result = _result("oi_flow", status, score_val, 1, reason)
+    if current_failure:
+        reason = f"Current {current_failure} — NO TRADE"
+        consolidated = latest.model_copy(
+            update={
+                "score": 0,
+                "reason": reason,
+                "effective_veto": True,
+                "veto_reason": reason,
+            }
+        )
+        return _result("oi_flow", "RED", 0, 1, reason), consolidated
 
-    consolidated_oi = OIFlowResult(
-        score=score_val,
-        phase=most_common_phase,
-        reason=reason,
-        gex_state=latest.gex_state,
-        nde_state=latest.nde_state,
-        vega_trap=latest.vega_trap,
-        pcr=latest.pcr,
-        iv_skew=latest.iv_skew,
-        ce_wall_strike=latest.ce_wall_strike,
-        ce_wall_oi_cr=latest.ce_wall_oi_cr,
-        pe_wall_strike=latest.pe_wall_strike,
-        pe_wall_oi_cr=latest.pe_wall_oi_cr,
-        pe_unwind_above_spot=latest.pe_unwind_above_spot,
-        ce_unwind_below_spot=latest.ce_unwind_below_spot,
+    latest_direction = _phase_direction(latest.phase)
+    vega_trap_count = sum(
+        1
+        for reading in buffer
+        if reading.data_valid and not reading.stale and reading.vega_trap
     )
+    if vega_trap_count >= settings.oi_consensus_trap_threshold:
+        reason = (
+            f"Historical recovery hold — Vega trap active in "
+            f"{vega_trap_count}/{len(buffer)} cycles — NO TRADE"
+        )
+        consolidated = latest.model_copy(
+            update={
+                "score": 0,
+                "reason": reason,
+                "effective_veto": True,
+                "veto_reason": reason,
+            }
+        )
+        return _result("oi_flow", "RED", 0, 1, reason), consolidated
 
-    return cond_result, consolidated_oi
+    matching_votes = sum(
+        1
+        for reading in buffer
+        if (
+            reading.score == 1
+            and reading.data_valid
+            and not reading.stale
+            and reading.nde_state == "confirms"
+            and _phase_direction(reading.phase) == latest_direction
+        )
+    )
+    if matching_votes >= settings.oi_consensus_green_threshold:
+        reason = (
+            f"Unified {latest_direction} conviction (Consensus "
+            f"{matching_votes}/{len(buffer)}) — GEX {latest.gex_state}, NDE confirms"
+        )
+        score_val = 1
+    else:
+        reason = (
+            f"Mixed signals — directional consensus not met "
+            f"({matching_votes}/{len(buffer)} matching green cycles) (NO TRADE)"
+        )
+        score_val = 0
+
+    consolidated = latest.model_copy(
+        update={
+            "score": score_val,
+            "reason": reason,
+            "effective_veto": score_val == 0,
+            "veto_reason": reason if score_val == 0 else None,
+        }
+    )
+    status = "GREEN" if score_val else "RED"
+    return _result("oi_flow", status, score_val, 1, reason), consolidated
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -12,7 +12,15 @@ from kairos.scheduler import (
     is_lunch_break,
     get_session_name,
 )
-from kairos.models import SessionConfig, PreviousDayLevels, OHLCVCandle, ConditionResult, EnvironmentScore
+from kairos.models import (
+    SessionConfig,
+    PreviousDayLevels,
+    OHLCVCandle,
+    ConditionResult,
+    EnvironmentScore,
+    OIFlowResult,
+    TrendPhase,
+)
 from kairos.config import settings
 from kairos.fetcher import DhanAuthError, DhanAPIError
 
@@ -197,6 +205,242 @@ async def test_run_cycle_significant_change_detection(mock_deps, mocker):
     await run_cycle()
     sched.notifier.post_environment_alert.assert_called()
 
+
+@pytest.mark.asyncio
+async def test_run_cycle_alerts_changed_oi_veto_below_six_once(mock_deps, mocker):
+    """A semantic OI veto change bypasses low-score silencing but deduplicates."""
+    import kairos.scheduler as sched
+
+    sched.state.reset_buffers()
+    sched.state.startup_done = True
+    sched.state.in_session = True
+    sched.state.warmup_complete = True
+    sched.state.active_config = SessionConfig(
+        symbol="NIFTY", expiry=date.today(), expiry_type="WEEKLY", status="ACTIVE"
+    )
+    sched.state.prev_levels = MagicMock()
+    sched.state.previous_status = "AVOID"
+    mocker.patch("kairos.scheduler.is_active_session", return_value=True)
+    sched.db.get_active_session.return_value = sched.state.active_config
+    sched.fetcher.get_option_chain.return_value = []
+    sched.fetcher.get_latest_candle.return_value = MagicMock(close=22000)
+
+    oi_condition = ConditionResult(
+        name="oi_flow", status="RED", points=0, max_points=1,
+        detail="Current Vega trap active — NO TRADE",
+    )
+    first_oi = OIFlowResult(
+        score=0, phase=TrendPhase.LONG_BUILDUP,
+        reason="Current Vega trap active — NO TRADE",
+        gex_state="trend", nde_state="confirms", vega_trap=True,
+        pcr=1.0, iv_skew=0.0, effective_veto=True,
+    )
+    first_score = EnvironmentScore(
+        timestamp=datetime.now(), symbol="NIFTY", expiry=date.today(), dte=1,
+        score=3, status="AVOID", conditions=[oi_condition], summary_raw="raw",
+        previous_status="AVOID", oi_flow_result=first_oi,
+    )
+    sched.evaluate.return_value = first_score
+
+    await run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 1
+
+    second_oi = first_oi.model_copy(
+        update={"reason": "Historical recovery hold — Vega trap active — NO TRADE", "vega_trap": False}
+    )
+    second_score = first_score.model_copy(update={"oi_flow_result": second_oi})
+    sched.evaluate.return_value = second_score
+
+    await run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 2
+
+    await run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_silences_diagnostic_consensus_vote_changes(mock_deps, mocker):
+    """Vote-count diagnostics must not be semantic OI alert events."""
+    import kairos.scheduler as sched
+
+    sched.state.reset_buffers()
+    sched.state.startup_done = True
+    sched.state.in_session = True
+    sched.state.warmup_complete = True
+    sched.state.active_config = SessionConfig(
+        symbol="NIFTY", expiry=date.today(), expiry_type="WEEKLY", status="ACTIVE"
+    )
+    sched.state.prev_levels = MagicMock()
+    sched.state.previous_status = "AVOID"
+    mocker.patch("kairos.scheduler.is_active_session", return_value=True)
+    sched.db.get_active_session.return_value = sched.state.active_config
+    sched.fetcher.get_option_chain.return_value = []
+    sched.fetcher.get_latest_candle.return_value = MagicMock(close=22000)
+
+    def consensus_score(votes: int) -> EnvironmentScore:
+        reason = f"Mixed signals — directional consensus not met ({votes}/8 matching green cycles)"
+        oi_result = OIFlowResult(
+            score=0,
+            phase=TrendPhase.LONG_BUILDUP,
+            reason=reason,
+            gex_state="trend",
+            nde_state="confirms",
+            vega_trap=False,
+            pcr=1.0,
+            iv_skew=0.0,
+        )
+        return EnvironmentScore(
+            timestamp=datetime.now(), symbol="NIFTY", expiry=date.today(), dte=1,
+            score=3, status="AVOID", conditions=[
+                ConditionResult(name="oi_flow", status="RED", points=0, max_points=1, detail=reason)
+            ], summary_raw="raw", previous_status="AVOID", oi_flow_result=oi_result,
+        )
+
+    sched.evaluate.side_effect = [consensus_score(votes) for votes in range(1, 5)]
+
+    for _ in range(4):
+        await run_cycle()
+
+    assert sched.notifier.post_environment_alert.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_alerts_first_low_score_non_oi_transition_with_stable_oi(mock_deps, mocker):
+    """A changed non-OI condition gets one low-score alert before silence."""
+    import kairos.scheduler as sched
+
+    sched.state.reset_buffers()
+    sched.state.startup_done = True
+    sched.state.in_session = True
+    sched.state.warmup_complete = True
+    sched.state.is_silenced = False
+    sched.state.active_config = SessionConfig(
+        symbol="NIFTY", expiry=date.today(), expiry_type="WEEKLY", status="ACTIVE"
+    )
+    sched.state.prev_levels = MagicMock()
+    sched.state.previous_status = "GO"
+    mocker.patch("kairos.scheduler.is_active_session", return_value=True)
+    sched.db.get_active_session.return_value = sched.state.active_config
+    sched.fetcher.get_option_chain.return_value = []
+    sched.fetcher.get_latest_candle.return_value = MagicMock(close=22000)
+
+    oi_result = OIFlowResult(
+        score=1, phase=TrendPhase.LONG_BUILDUP,
+        reason="Unified bullish conviction (Consensus 5/8) — GEX trend, NDE confirms",
+        gex_state="trend", nde_state="confirms", vega_trap=False, pcr=1.0, iv_skew=0.0,
+    )
+    oi_condition = ConditionResult(
+        name="oi_flow", status="GREEN", points=1, max_points=1, detail=oi_result.reason
+    )
+    high_score = EnvironmentScore(
+        timestamp=datetime.now(), symbol="NIFTY", expiry=date.today(), dte=1,
+        score=7, status="GO", conditions=[
+            ConditionResult(name="momentum", status="GREEN", points=1, max_points=1, detail="up"),
+            oi_condition,
+        ], summary_raw="raw", previous_status="GO", oi_flow_result=oi_result,
+    )
+    low_score = high_score.model_copy(
+        update={
+            "score": 5,
+            "status": "CAUTION",
+            "conditions": [
+                ConditionResult(name="momentum", status="RED", points=0, max_points=1, detail="down"),
+                oi_condition,
+            ],
+        }
+    )
+    sched.evaluate.side_effect = [high_score, low_score]
+
+    await run_cycle()
+    await run_cycle()
+
+    assert (sched.notifier.post_environment_alert.await_count, sched.state.is_silenced) == (2, True)
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_deduplicates_successful_consensus_vote_changes(mock_deps, mocker):
+    """Successful 5/8-to-8/8 diagnostics are one semantic OI event."""
+    import kairos.scheduler as sched
+
+    sched.state.reset_buffers()
+    sched.state.startup_done = True
+    sched.state.in_session = True
+    sched.state.warmup_complete = True
+    sched.state.active_config = SessionConfig(
+        symbol="NIFTY", expiry=date.today(), expiry_type="WEEKLY", status="ACTIVE"
+    )
+    sched.state.prev_levels = MagicMock()
+    sched.state.previous_status = "GO"
+    mocker.patch("kairos.scheduler.is_active_session", return_value=True)
+    sched.db.get_active_session.return_value = sched.state.active_config
+    sched.fetcher.get_option_chain.return_value = []
+    sched.fetcher.get_latest_candle.return_value = MagicMock(close=22000)
+
+    def consensus_score(votes: int) -> EnvironmentScore:
+        reason = f"Unified bullish conviction (Consensus {votes}/8) — GEX trend, NDE confirms"
+        oi_result = OIFlowResult(
+            score=1,
+            phase=TrendPhase.LONG_BUILDUP,
+            reason=reason,
+            gex_state="trend",
+            nde_state="confirms",
+            vega_trap=False,
+            pcr=1.0,
+            iv_skew=0.0,
+        )
+        return EnvironmentScore(
+            timestamp=datetime.now(), symbol="NIFTY", expiry=date.today(), dte=1,
+            score=7, status="GO", conditions=[
+                ConditionResult(name="oi_flow", status="GREEN", points=1, max_points=1, detail=reason)
+            ], summary_raw="raw", previous_status="GO", oi_flow_result=oi_result,
+        )
+
+    sched.evaluate.side_effect = [consensus_score(votes) for votes in range(5, 9)]
+
+    for _ in range(4):
+        await run_cycle()
+
+    assert sched.notifier.post_environment_alert.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_oi_veto_caps_go_even_with_yellow_iv(mock_deps, mocker):
+    """An OI veto must survive the scheduler's IV hysteresis path."""
+    import kairos.scheduler as sched
+
+    sched.state.reset_buffers()
+    sched.state.startup_done = True
+    sched.state.in_session = True
+    sched.state.warmup_complete = True
+    sched.state.active_config = SessionConfig(
+        symbol="NIFTY", expiry=date.today(), expiry_type="WEEKLY", status="ACTIVE"
+    )
+    sched.state.prev_levels = MagicMock()
+    mocker.patch("kairos.scheduler.is_active_session", return_value=True)
+    sched.db.get_active_session.return_value = sched.state.active_config
+    sched.fetcher.get_option_chain.return_value = []
+    sched.fetcher.get_latest_candle.return_value = MagicMock(close=22000)
+
+    oi_result = OIFlowResult(
+        score=0, phase=TrendPhase.LONG_BUILDUP,
+        reason="Historical recovery hold — Vega trap active — NO TRADE",
+        gex_state="trend", nde_state="confirms", vega_trap=False,
+        pcr=1.0, iv_skew=0.0, effective_veto=True,
+    )
+    score = EnvironmentScore(
+        timestamp=datetime.now(), symbol="NIFTY", expiry=date.today(), dte=1,
+        score=7, status="GO", conditions=[
+            ConditionResult(name="iv_trend", status="YELLOW", points=1, max_points=2, detail="flat"),
+            ConditionResult(name="oi_flow", status="RED", points=0, max_points=1, detail=oi_result.reason),
+        ],
+        summary_raw="raw", oi_flow_result=oi_result,
+    )
+    sched.evaluate.return_value = score
+
+    await run_cycle()
+
+    assert score.status == "CAUTION"
+
 @pytest.mark.asyncio
 async def test_run_cycle_iv_cap_hold_go_to_caution(mock_deps, mocker):
     import kairos.scheduler as sched
@@ -335,3 +579,87 @@ async def test_run_cycle_oi_rolling_calculation(mock_deps, mocker, make_option_r
     assert row_t_next.oi_change == 600
 
 
+@pytest.mark.asyncio
+async def test_run_cycle_preserves_timestamp_through_nine_obsolete_candles(
+    mock_deps, mocker, make_candle, make_option_row, mock_now
+):
+    import kairos.engine as engine
+    import kairos.scheduler as sched
+
+    config = SessionConfig(
+        symbol="NIFTY",
+        expiry=date.today(),
+        expiry_type="WEEKLY",
+        status="ACTIVE",
+    )
+    fresh_timestamp = mock_now
+    fresh_candle = make_candle(
+        22000.0,
+        low=21700.0,
+        high=22300.0,
+        vwap=22000.0,
+    ).model_copy(update={"timestamp": fresh_timestamp})
+    obsolete_candles = [
+        fresh_candle.model_copy(
+            update={
+                "timestamp": (
+                    fresh_timestamp
+                    if index % 2 == 0
+                    else fresh_timestamp - timedelta(minutes=1)
+                )
+            }
+        )
+        for index in range(9)
+    ]
+    option_chain = [
+        make_option_row(
+            strike,
+            option_type,
+            iv=0.2,
+            gamma=0.3,
+            theta=-0.5,
+            vega=1.0,
+            oi_change=10_000,
+            ltp=150.0,
+        )
+        for strike in range(21650, 22351, 50)
+        for option_type in ("CE", "PE")
+    ]
+
+    sched.state.reset_buffers()
+    try:
+        sched.state.startup_done = True
+        sched.state.in_session = True
+        sched.state.warmup_complete = True
+        sched.state.active_config = config
+        sched.state.prev_levels = PreviousDayLevels(
+            symbol="NIFTY",
+            trade_date=date.today(),
+            prev_day_high=23000.0,
+            prev_day_low=21000.0,
+            fetched_at=fresh_timestamp,
+        )
+        mocker.patch("kairos.scheduler.is_active_session", return_value=True)
+        sched.db.get_active_session.return_value = config
+        sched.fetcher.get_option_chain.return_value = option_chain
+        sched.fetcher.get_latest_candle.side_effect = [
+            fresh_candle,
+            *obsolete_candles,
+        ]
+        sched.evaluate.side_effect = engine.evaluate
+
+        for _ in range(10):
+            await run_cycle()
+
+        accepted_timestamps = [
+            call.kwargs["last_accepted_timestamp"]
+            for call in sched.evaluate.call_args_list
+        ]
+        assert accepted_timestamps == [None, *([fresh_timestamp] * 9)]
+        assert sched.state.last_accepted_oi_timestamp == fresh_timestamp
+        assert len(sched.state.oi_flow_buffer) == 8
+        assert all(reading.stale for reading in sched.state.oi_flow_buffer)
+    finally:
+        sched.state.reset_buffers()
+
+    assert sched.state.last_accepted_oi_timestamp is None

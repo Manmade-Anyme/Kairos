@@ -211,8 +211,8 @@ class TestFullGreen:
         assert cond.status == "GREEN"
         assert oi.score == 1
 
-    def test_missing_gex_trend_stays_red(self, make_cluster, make_candle):
-        """NDE confirms + PCR aligned but GEX neutral → score=0 (mixed signals)."""
+    def test_valid_neutral_gex_qualifies(self, make_cluster, make_candle):
+        """A valid neutral GEX state does not oppose confirmed direction."""
         cluster, buf = _cluster(
             make_cluster, make_candle,
             price_change=-10.0,
@@ -221,11 +221,11 @@ class TestFullGreen:
             pcr=0.90,
         )
         cond, oi = score_oi_flow(cluster, iv_change_rate=0.5, candle_buffer=buf)
-        assert cond.points == 0
-        assert "Mixed signals" in oi.reason
+        assert cond.points == 1
+        assert oi.score == 1
 
-    def test_missing_pcr_stays_red(self, make_cluster, make_candle):
-        """GEX trend + NDE confirms but PCR balanced → score=0."""
+    def test_pcr_is_passive_telemetry(self, make_cluster, make_candle):
+        """GEX trend + NDE confirmation qualify regardless of passive PCR."""
         cluster, buf = _cluster(
             make_cluster, make_candle,
             price_change=-10.0,
@@ -234,7 +234,8 @@ class TestFullGreen:
             pcr=1.00,                        # balanced, doesn't confirm bearish
         )
         cond, oi = score_oi_flow(cluster, iv_change_rate=0.5, candle_buffer=buf)
-        assert cond.points == 0
+        assert cond.points == 1
+        assert oi.score == 1
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -346,7 +347,7 @@ class TestConsensusFilter:
         assert cond.status == "RED"
         assert cond.points == 0
         assert oi.score == 0
-        assert "Vega trap active (3/8 cycles)" in cond.detail
+        assert "Current Vega trap active" in cond.detail
 
     def test_gex_pin_override(self):
         buf = deque(maxlen=8)
@@ -360,7 +361,7 @@ class TestConsensusFilter:
         assert cond.status == "RED"
         assert cond.points == 0
         assert oi.score == 0
-        assert "GEX pin active (3/8 cycles)" in cond.detail
+        assert "Current GEX pin active" in cond.detail
 
     def test_mode_phase_wins(self):
         buf = deque(maxlen=8)
@@ -380,4 +381,3 @@ class TestConsensusFilter:
         # Ties between Neutral and Long Buildup. Since Long Buildup is the most recent (at the end), it should win.
         cond, oi = consolidate_oi_flow(buf)
         assert oi.phase == TrendPhase.LONG_BUILDUP
-

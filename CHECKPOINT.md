@@ -1,24 +1,25 @@
 # Session Checkpoint
 **Date:** 2026-09-09
-**Session:** #1 (TASK-127 Kickoff)
+**Session:** #2 (Stage 1 Architecture Complete -> Stage 2 Implementation Dispatched)
 
 ## Completed This Session
-- TASK-127 Directive authored in `directives/TASK-127_fix_momentum_filter.md` — by Project Manager
-- Feature branch `feature/MANM-127-fix-momentum-filter` created and synced
-- Engineering Delivery Graph configured on ticket MANM-127 in single-ticket mode
+- Stage 1 Architecture Specification & ADR Amendment produced by Software Architect
+  - ADR: `directives/adr/TASK-127_momentum-filter-audit-remediation.md` (commit `ae6b501`)
+  - Status: H1 PASS verified
+  - Synced to Obsidian: `~/Documents/Obsidian/adr/TASK-127-momentum-filter-audit-remediation.md`
 
 ## Open Tasks
 - TASK-127 (MANM-127) Fix momentum filter — assigned to Engineering Delivery Graph, status: in_progress
-  - Stage 1: Software Architect (ADR in `directives/adr/TASK-127_momentum-filter-audit-remediation.md`)
+  - Stage 2: Code Generator Agent (Implementation on `feature/MANM-127-fix-momentum-filter`)
 
 ## Blockers
 - None
 
 ## Agent States
-- Project Manager: Dispatched Stage 1 to Software Architect on issue MANM-127
-- Software Architect: Assigned Stage 1 (ADR specification)
-- Code Generator: Pending Stage 1 completion
-- PR Reviewer & QA: Pending implementation
+- Project Manager: Evaluated Stage 1 H1 PASS; updated metadata and dispatched Stage 2 to Code Generator Agent
+- Software Architect: Stage 1 complete (PASS)
+- Code Generator: Active / dispatched for Stage 2 implementation
+- PR Reviewer & QA: Pending Stage 2 completion
 
 ## Resume Instructions
-Software Architect to produce ADR in `directives/adr/TASK-127_momentum-filter-audit-remediation.md` addressing all 7 audit findings and post H1 PASS on MANM-127.
+Code Generator Agent to implement ADR specifications in `src/kairos/`, add regression tests in `tests/`, ensure local test pass, push to `feature/MANM-127-fix-momentum-filter`, and return H1 PASS on MANM-127.

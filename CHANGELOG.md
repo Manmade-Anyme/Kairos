@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **MANM-127 P2 additional follow-up:** Included `diagnostics.evaluated_at` in the scheduler alert fingerprint to ensure each completed-candle evaluation is uniquely tracked. Updated `run_cycle` to evaluate invalid or non-minute-aligned completed candles using a temporary buffer, emitting the required timestamped YELLOW/data-unavailable result before discarding them.
 - **MANM-127 P2 follow-up:** Momentum configuration now rejects buffers that
   cannot retain the required six-close or preceding-volume history. Stale
   candles are scored and persisted as timestamped data-unavailable results

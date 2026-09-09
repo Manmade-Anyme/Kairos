@@ -340,3 +340,49 @@ async def test_run_cycle_discards_invalid_candle_before_scoring(mock_deps_sched,
 
     # evaluate must NOT have been called — the cycle returned at the upsert gate
     sched.evaluate.assert_not_called()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. processor.py:195-196 (PR Reviewer P2)
+#    — evaluated candle timestamp is included in momentum detail string
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_momentum_detail_includes_evaluated_candle_timestamp():
+    """
+    processor.py:195-196 — the formatted candle timestamp (YYYY-MM-DD HH:MM)
+    must appear at the start of the detail string for every non-data-unavailable
+    result so it surfaces in Discord alerts and the environment log.
+    """
+    from kairos.processor import score_momentum
+
+    # Anchor candles to a specific time so we can assert the exact string prefix
+    anchor = datetime(2026, 3, 23, 10, 30, tzinfo=IST)
+    prefix_closes = [100.0] * 10
+    signal_closes = [101.0, 102.0, 101.8, 103.0, 104.0, 105.0]
+    all_closes = prefix_closes + signal_closes
+
+    buf = deque(
+        _candle(anchor + timedelta(minutes=i), c, volume=200.0)
+        for i, c in enumerate(all_closes)
+    )
+    # Give the last candle a volume spike so we hit GREEN
+    last = buf[-1]
+    from kairos.models import OHLCVCandle
+    buf[-1] = OHLCVCandle(
+        timestamp=last.timestamp,
+        symbol="NIFTY",
+        open=last.close,
+        high=last.close + 0.5,
+        low=last.close - 0.5,
+        close=last.close,
+        volume=500.0,   # well above 1.5× baseline of 200
+        vwap=last.close,
+    )
+
+    expected_ts_prefix = last.timestamp.strftime("%Y-%m-%d %H:%M")
+    result = score_momentum(buf)
+
+    # Detail must start with the formatted timestamp regardless of gate outcome
+    assert result.detail.startswith(f"[{expected_ts_prefix}]"), (
+        f"Expected detail to start with '[{expected_ts_prefix}]', got: {result.detail!r}"
+    )

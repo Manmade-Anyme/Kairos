@@ -192,7 +192,9 @@ def score_momentum(candle_buffer: deque) -> ConditionResult:
     trend_green = dominant_count >= settings.momentum_trend_count_green
     volume_spike = current_volume > baseline_average * settings.momentum_volume_multiplier
     diagnostics.failed_gates = [name for name, passed in (("range", range_green), ("trend", trend_green), ("volume", volume_spike)) if not passed]
-    detail = (f"{range_pct:.2f}% range (>{settings.momentum_range_green:.2f}% green; <{settings.momentum_range_yellow:.2f}% red) | "
+    ts_str = diagnostics.evaluated_at.strftime("%Y-%m-%d %H:%M") if diagnostics.evaluated_at else "unknown"
+    detail = (f"[{ts_str}] "
+              f"{range_pct:.2f}% range (>{settings.momentum_range_green:.2f}% green; <{settings.momentum_range_yellow:.2f}% red) | "
               f"up {up_count}/5, down {down_count}/5, flat {flat_count}/5 ({direction}) | "
               f"volume {current_volume:.0f} vs {baseline_average:.0f} ({diagnostics.volume_ratio:.2f}x; {len(baseline)} baseline) | "
               f"{'all gates pass' if not diagnostics.failed_gates else 'failed: ' + ', '.join(diagnostics.failed_gates)}")

@@ -3,9 +3,9 @@
 ## Active Sprints / Issues
 
 ### TASK-127 [MANM-127]: Fix Momentum Filter
-- **Status:** In Review (Human Gate)
+- **Status:** In Progress (Addressing PR Reviewer P2s)
 - **Priority:** High
-- **PR:** https://github.com/Manmade-Anyme/Kairos/pull/16 (199 passed, 100% diff coverage)
-- **Assigned:** Engineering Delivery Graph (Leader: Project Manager)
-- **Current Phase:** Human Gate (Awaiting PR Merge)
-- **Acceptance Criteria:** Met (ADR, Implementation, Docs, Spec Review, QA Coverage all PASS)
+- **PR:** https://github.com/Manmade-Anyme/Kairos/pull/16
+- **Assigned:** Code Generator Agent (Leader: Project Manager)
+- **Current Phase:** Implementation (Addressing 2 P2 Review Items)
+- **Acceptance Criteria:** Both P2 items resolved with unit tests, 100% diff coverage, QA re-verification PASS

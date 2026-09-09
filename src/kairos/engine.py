@@ -409,6 +409,7 @@ def evaluate(
     previous_status: Optional[str] = None,
     oi_flow_buffer: Optional[deque] = None,
     last_accepted_timestamp: Optional[datetime] = None,
+    now: Optional[datetime] = None,
 ) -> EnvironmentScore:
     """
     Orchestrates the 7 technical scoring conditions into a unified EnvironmentScore.
@@ -479,7 +480,7 @@ def evaluate(
 
     # ── Run all 7 conditions ─────────────────────────────────────────────
     c1_iv = score_iv_change(iv_buffer, dte)
-    c2_mom = score_momentum(candle_buffer)
+    c2_mom = score_momentum(candle_buffer, now=now)
     
     # Condition 3 raw + consensus filtering (ADR-021)
     c3_oi_raw, oi_flow_result_raw = score_oi_flow(cluster, iv_change_rate, candle_buffer)

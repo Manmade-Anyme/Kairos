@@ -27,8 +27,8 @@ def test_evaluate_iv_cap(make_candle, make_option_row, mock_now, mock_date):
     chain = _complete_scoring_chain(
         make_option_row, iv=0.10, gamma=0.3, theta=-0.5, vega=1.0, oi_change=10000, ltp=150.0
     )
-    c_buf = deque(maxlen=15)
-    for _ in range(10):
+    c_buf = deque(maxlen=20)
+    for _ in range(11):
         c_buf.append(make_candle(22000.0, volume=100, vwap=22000.0, low=21700.0, high=22300.0))
 
     c_buf.append(make_candle(22005.0, volume=1000, vwap=22000.0, low=21700.0, high=22300.0))
@@ -51,8 +51,8 @@ def test_evaluate_initial_consensus_blocks_go(make_candle, make_option_row, mock
     chain = _complete_scoring_chain(
         make_option_row, iv=0.10, gamma=0.3, theta=-0.5, vega=1.0, oi_change=10000, ltp=150.0
     )
-    c_buf = deque(maxlen=15)
-    for _ in range(10):
+    c_buf = deque(maxlen=20)
+    for _ in range(11):
         c_buf.append(make_candle(22000.0, volume=100, vwap=22000.0, low=21700.0, high=22300.0))
 
     c_buf.append(make_candle(22005.0, volume=1000, vwap=22000.0, low=21700.0, high=22300.0))
@@ -79,8 +79,8 @@ def test_evaluate_with_consensus_buffer(make_candle, make_option_row, mock_now, 
     chain = _complete_scoring_chain(
         make_option_row, iv=0.10, gamma=0.3, theta=-0.5, vega=1.0, oi_change=10000, ltp=150.0
     )
-    c_buf = deque(maxlen=15)
-    for _ in range(10):
+    c_buf = deque(maxlen=20)
+    for _ in range(11):
         c_buf.append(make_candle(22000.0, volume=100, vwap=22000.0, low=21700.0, high=22300.0))
     
     c_buf.append(make_candle(22005.0, volume=1000, vwap=22000.0, low=21700.0, high=22300.0))
@@ -128,8 +128,8 @@ def test_evaluate_caps_go_when_directional_consensus_is_not_met(
         make_option_row, iv=0.10, gamma=0.3, theta=-0.5, vega=1.0, oi_change=10000, ltp=150.0
     )
     candles = deque(
-        [make_candle(22000.0, volume=100, low=21700.0, high=22300.0, vwap=22000.0)] * 10,
-        maxlen=15,
+        (make_candle(22000.0, volume=100, low=21700.0, high=22300.0, vwap=22000.0) for _ in range(11)),
+        maxlen=20,
     )
     candles.extend(
         make_candle(close, low=21700.0, high=22500.0, volume=1000, vwap=22000.0)

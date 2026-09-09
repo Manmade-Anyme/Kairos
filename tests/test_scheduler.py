@@ -8,8 +8,9 @@ sys.modules['apscheduler.schedulers'] = MagicMock()
 sys.modules['apscheduler.schedulers.asyncio'] = MagicMock()
 sys.modules['apscheduler.triggers.interval'] = MagicMock()
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from collections import deque
+from zoneinfo import ZoneInfo
 
 from kairos.scheduler import run_cycle, run_heartbeat, state, is_active_session, run_startup_checks
 from kairos.models import SessionConfig, OHLCVCandle, PreviousDayLevels, EnvironmentScore, OptionChainRow
@@ -35,7 +36,7 @@ def dummy_session():
 @pytest.fixture
 def dummy_candle():
     return OHLCVCandle(
-        timestamp=datetime.now(),
+        timestamp=datetime.now(ZoneInfo("Asia/Kolkata")).replace(second=0, microsecond=0) - timedelta(minutes=1),
         symbol="NIFTY",
         interval=1,
         open=22000.0,
@@ -125,6 +126,71 @@ async def test_run_cycle(mock_dependencies, dummy_session, dummy_candle, dummy_l
     # Verify first cycle alert was sent (ADR-008)
     sched.notifier.post_environment_alert.assert_called_once()
     assert getattr(sched.state, "cycle_count") == 1
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_scores_and_logs_a_stale_candle(mock_dependencies, dummy_session, dummy_candle, dummy_levels, dummy_score, mocker):
+    import kairos.scheduler as sched
+
+    sched.state.reset_buffers()
+    sched.state.startup_done = sched.state.in_session = sched.state.warmup_complete = True
+    sched.state.prev_levels = dummy_levels
+    sched.state.active_config = dummy_session
+    stale_candle = dummy_candle.model_copy(
+        update={"timestamp": datetime.now(ZoneInfo("Asia/Kolkata")).replace(second=0, microsecond=0) - timedelta(minutes=3)}
+    )
+    sched.db.get_active_session = AsyncMock(return_value=dummy_session)
+    sched.fetcher.get_option_chain = AsyncMock(return_value=[])
+    sched.fetcher.get_latest_candle = AsyncMock(return_value=stale_candle)
+    sched.fetcher.last_completed_candles = [stale_candle]
+    sched.db.write_environment_log = AsyncMock()
+    sched.notifier.post_environment_alert = AsyncMock()
+    mocker.patch("kairos.scheduler.evaluate", return_value=dummy_score)
+
+    await sched.run_cycle()
+
+    sched.evaluate.assert_called_once()
+    assert sched.evaluate.call_args.kwargs["now"].tzinfo == ZoneInfo("Asia/Kolkata")
+    sched.db.write_environment_log.assert_called_once_with(dummy_score)
+
+@pytest.mark.asyncio
+async def test_run_cycle_evaluates_invalid_completed_candle(mock_dependencies, dummy_session, dummy_candle, dummy_levels, dummy_score, mocker):
+    import kairos.scheduler as sched
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    sched.state.reset_buffers()
+    sched.state.startup_done = sched.state.in_session = sched.state.warmup_complete = True
+    sched.state.prev_levels = dummy_levels
+    sched.state.active_config = dummy_session
+    
+    now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    # Completed but invalid (close=0)
+    invalid_candle = dummy_candle.model_copy(
+        update={"timestamp": (now - timedelta(minutes=1)).replace(second=0, microsecond=0), "close": 0}
+    )
+    
+    sched.db.get_active_session = AsyncMock(return_value=dummy_session)
+    sched.fetcher.get_option_chain = AsyncMock(return_value=[])
+    sched.fetcher.get_latest_candle = AsyncMock(return_value=invalid_candle)
+    sched.fetcher.last_completed_candles = [invalid_candle]
+    sched.db.write_environment_log = AsyncMock()
+    sched.notifier.post_environment_alert = AsyncMock()
+    
+    dummy_score.score = 5
+    dummy_score.status = "CAUTION"
+    evaluate_mock = mocker.patch("kairos.scheduler.evaluate", return_value=dummy_score)
+
+    await sched.run_cycle()
+
+    # It MUST NOT be in the persistent state buffer
+    assert len(sched.state.candle_buffer) == 0
+    
+    # But it MUST be passed to evaluate via the temporary eval_candle_buffer
+    evaluate_mock.assert_called_once()
+    passed_buffer = evaluate_mock.call_args.kwargs["candle_buffer"]
+    assert len(passed_buffer) == 1
+    assert passed_buffer[0].close == 0
 
 @pytest.mark.asyncio
 async def test_run_heartbeat(mock_dependencies, dummy_session):
@@ -568,6 +634,4 @@ async def test_iv_cap_hysteresis_releases(mock_dependencies, dummy_session, dumm
     await sched.run_cycle()
     assert sched.state.iv_cap_active is False  # cap should be released
     assert strong_iv_score.iv_capped is False
-
-
 

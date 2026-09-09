@@ -27,5 +27,5 @@ This directory acts as the historical log of all critical architectural decision
 | ADR-022 | Dynamic Supabase Bridge Authentication & Recovery | 2026-06-19 | Active |
 | ADR-023 | 15-Minute Rolling Window for OI Flow | 2026-06-29 | Active |
 | TASK-103 | Audited OI Flow Filter Remediation (amends ADR-012/015/017/018/021/023) | 2026-09-08 | Proposed |
-
+| TASK-127 | Momentum Filter Audit Remediation (amends ADR-007/015 and shared TASK-103 alerting) | 2026-09-09 | Proposed |
 

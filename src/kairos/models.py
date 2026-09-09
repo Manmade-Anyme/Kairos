@@ -7,7 +7,7 @@ No business logic here — only structure and validation.
 from datetime import date, datetime
 from enum import Enum
 from typing import Optional
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class TrendPhase(str, Enum):
@@ -69,7 +69,7 @@ class OHLCVCandle(BaseModel):
     high: float
     low: float
     close: float
-    volume: int
+    volume: float | None
     vwap: float    # calculated incrementally by fetcher each cycle
 
 
@@ -198,6 +198,28 @@ class StrikeCluster(BaseModel):
     data_invalid_reason: Optional[str] = None
 
 
+class MomentumDiagnostics(BaseModel):
+    """Machine-readable evidence for one momentum evaluation."""
+
+    evaluated_at: Optional[datetime] = None
+    readiness: str = "ready"
+    range_pct: Optional[float] = None
+    range_red_threshold: float = 0.15
+    range_green_threshold: float = 0.30
+    up_count: int = 0
+    down_count: int = 0
+    flat_count: int = 0
+    denominator: int = 5
+    direction: str = "flat"
+    dominant_count: int = 0
+    current_volume: Optional[float] = None
+    baseline_average: Optional[float] = None
+    baseline_count: int = 0
+    volume_multiplier: float = 1.5
+    volume_ratio: Optional[float] = None
+    failed_gates: list[str] = Field(default_factory=list)
+
+
 class ConditionResult(BaseModel):
     """
     Result of one scored condition.
@@ -211,6 +233,7 @@ class ConditionResult(BaseModel):
     points: int        # actual points scored this cycle
     max_points: int    # maximum possible for this condition
     detail: str        # human-readable value, e.g. "+2.1 IV expanding"
+    diagnostics: Optional[MomentumDiagnostics] = None
 
     @field_validator("status")
     @classmethod

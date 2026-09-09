@@ -1,25 +1,27 @@
 # Session Checkpoint
 **Date:** 2026-09-09
-**Session:** #2 (Stage 1 Architecture Complete -> Stage 2 Implementation Dispatched)
+**Session:** #3 (Stage 2 Implementation Complete -> Stage 3 Documentation Dispatched)
 
 ## Completed This Session
-- Stage 1 Architecture Specification & ADR Amendment produced by Software Architect
-  - ADR: `directives/adr/TASK-127_momentum-filter-audit-remediation.md` (commit `ae6b501`)
-  - Status: H1 PASS verified
-  - Synced to Obsidian: `~/Documents/Obsidian/adr/TASK-127-momentum-filter-audit-remediation.md`
+- Stage 2 Implementation completed by Code Generator Agent
+  - PR: https://github.com/Manmade-Anyme/Kairos/pull/16 (commit `630bf7b`)
+  - Tests: 183 passed
+  - Scope: 1-minute candle ingestion/deduplication, 4-of-5 trend scoring, preceding-15 volume baseline, decoupled transition alerting, regression test suite.
 
 ## Open Tasks
 - TASK-127 (MANM-127) Fix momentum filter — assigned to Engineering Delivery Graph, status: in_progress
-  - Stage 2: Code Generator Agent (Implementation on `feature/MANM-127-fix-momentum-filter`)
+  - Stage 3: Documentation Agent (docs/scoring_architecture.md, CHANGELOG.md, Obsidian sync)
+  - Stage 4: PR Reviewer + QA Agent (parallel)
 
 ## Blockers
 - None
 
 ## Agent States
-- Project Manager: Evaluated Stage 1 H1 PASS; updated metadata and dispatched Stage 2 to Code Generator Agent
+- Project Manager: Evaluated Stage 2 H1 PASS; verified PR #16; dispatched Stage 3 to Documentation Agent
 - Software Architect: Stage 1 complete (PASS)
-- Code Generator: Active / dispatched for Stage 2 implementation
-- PR Reviewer & QA: Pending Stage 2 completion
+- Code Generator: Stage 2 complete (PASS, PR #16 open)
+- Documentation Agent: Active / dispatched for Stage 3
+- PR Reviewer & QA: Pending Stage 3 completion
 
 ## Resume Instructions
-Code Generator Agent to implement ADR specifications in `src/kairos/`, add regression tests in `tests/`, ensure local test pass, push to `feature/MANM-127-fix-momentum-filter`, and return H1 PASS on MANM-127.
+Documentation Agent to update `docs/scoring_architecture.md` and `CHANGELOG.md` on `feature/MANM-127-fix-momentum-filter`, sync to Obsidian, push commits, and return H1 PASS on MANM-127.

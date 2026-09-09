@@ -321,11 +321,10 @@ async def test_run_cycle_discards_invalid_candle_before_scoring(mock_deps_sched,
     sched.db.get_active_session.return_value = sched.state.active_config
     sched.fetcher.get_option_chain.return_value = []
 
-    # Candle timestamped 1 minute ago → passes the staleness guard (< 2 min)
-    fresh_ts = datetime.now(IST).replace(second=0, microsecond=0) - timedelta(minutes=1)
+    # Candle timestamped right now -> passes staleness, but NOT chronologically completed.
+    fresh_ts = datetime.now(IST).replace(second=0, microsecond=0)
 
-    # Geometry-invalid candle: high < close → candle_is_completed() returns False
-    # → upsert_completed_candle rejects it → scheduler.py:503-504 is reached
+    # Geometry-invalid candle: high < close 
     bad_candle = OHLCVCandle(
         timestamp=fresh_ts,
         symbol="NIFTY",
@@ -340,10 +339,12 @@ async def test_run_cycle_discards_invalid_candle_before_scoring(mock_deps_sched,
     # Ensure scheduler takes the OHLCVCandle branch (not the test-double path)
     sched.fetcher.last_completed_candles = [bad_candle]
 
+    mock_evaluate = mocker.patch("kairos.scheduler.evaluate")
+
     await sched.run_cycle()
 
-    # evaluate must NOT have been called — the cycle returned at the upsert gate
-    sched.evaluate.assert_not_called()
+    # The candle was discarded and evaluate was NEVER called
+    mock_evaluate.assert_not_called()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. processor.py:195-196 (PR Reviewer P2)

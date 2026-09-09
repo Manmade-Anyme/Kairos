@@ -72,6 +72,7 @@ def condition_fingerprint(conditions: list[ConditionResult], oi_event: tuple | N
             diagnostic.direction if diagnostic else None,
             diagnostic.dominant_count if diagnostic else None,
             tuple(diagnostic.failed_gates) if diagnostic else (),
+            diagnostic.evaluated_at.isoformat() if diagnostic and getattr(diagnostic, "evaluated_at", None) else None,
         ))
     return tuple(fingerprint) + (("oi_event", oi_event),) if oi_event is not None else tuple(fingerprint)
 
@@ -493,16 +494,44 @@ async def run_cycle() -> None:
 
     # 5. Update in-memory buffers
     now = datetime.now(IST)
+    eval_candle_buffer = state.candle_buffer
     if isinstance(latest_candle, OHLCVCandle):
         if now - latest_candle.timestamp > timedelta(minutes=2):
             logger.warning("Scoring stale one-minute candle as data unavailable")
         historical_candles = getattr(fetcher, "last_completed_candles", None)
         candles = historical_candles if isinstance(historical_candles, list) and historical_candles else [latest_candle]
-        if not all(upsert_completed_candle(state.candle_buffer, candle, now=now) for candle in candles):
-            logger.warning("Discarding incomplete or invalid one-minute candle")
+        
+        has_uncompleted = False
+        has_completed_but_invalid = False
+        
+        for candle in candles:
+            is_chronologically_completed = (
+                candle.timestamp.tzinfo is not None 
+                and candle.timestamp + timedelta(minutes=1) <= now
+            )
+            if not is_chronologically_completed:
+                has_uncompleted = True
+            else:
+                if not upsert_completed_candle(state.candle_buffer, candle, now=now):
+                    has_completed_but_invalid = True
+
+        if has_uncompleted and not has_completed_but_invalid:
+            logger.warning("Discarding incomplete one-minute candle")
             return
+            
+        if has_completed_but_invalid:
+            logger.warning("Discarding invalid or non-aligned completed candle")
+            eval_candle_buffer = state.candle_buffer.copy()
+            for candle in candles:
+                is_chronologically_completed = (
+                    candle.timestamp.tzinfo is not None 
+                    and candle.timestamp + timedelta(minutes=1) <= now
+                )
+                if is_chronologically_completed and candle not in state.candle_buffer:
+                    eval_candle_buffer.append(candle)
     else:  # Test doubles do not represent production fetcher output.
         state.candle_buffer.append(latest_candle)
+        eval_candle_buffer = state.candle_buffer
 
     # Find ATM IV and append to iv_buffer
     interval = settings.nifty_strike_interval
@@ -536,7 +565,7 @@ async def run_cycle() -> None:
     try:
         score = evaluate(
             option_chain=option_chain,
-            candle_buffer=state.candle_buffer,
+            candle_buffer=eval_candle_buffer,
             iv_buffer=state.iv_buffer,
             prev_levels=state.prev_levels,
             spot_price=latest_candle.close,

@@ -154,6 +154,45 @@ async def test_run_cycle_scores_and_logs_a_stale_candle(mock_dependencies, dummy
     sched.db.write_environment_log.assert_called_once_with(dummy_score)
 
 @pytest.mark.asyncio
+async def test_run_cycle_evaluates_invalid_completed_candle(mock_dependencies, dummy_session, dummy_candle, dummy_levels, dummy_score, mocker):
+    import kairos.scheduler as sched
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    sched.state.reset_buffers()
+    sched.state.startup_done = sched.state.in_session = sched.state.warmup_complete = True
+    sched.state.prev_levels = dummy_levels
+    sched.state.active_config = dummy_session
+    
+    now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    # Completed but invalid (close=0)
+    invalid_candle = dummy_candle.model_copy(
+        update={"timestamp": (now - timedelta(minutes=1)).replace(second=0, microsecond=0), "close": 0}
+    )
+    
+    sched.db.get_active_session = AsyncMock(return_value=dummy_session)
+    sched.fetcher.get_option_chain = AsyncMock(return_value=[])
+    sched.fetcher.get_latest_candle = AsyncMock(return_value=invalid_candle)
+    sched.fetcher.last_completed_candles = [invalid_candle]
+    sched.db.write_environment_log = AsyncMock()
+    sched.notifier.post_environment_alert = AsyncMock()
+    
+    dummy_score.score = 5
+    dummy_score.status = "CAUTION"
+    evaluate_mock = mocker.patch("kairos.scheduler.evaluate", return_value=dummy_score)
+
+    await sched.run_cycle()
+
+    # It MUST NOT be in the persistent state buffer
+    assert len(sched.state.candle_buffer) == 0
+    
+    # But it MUST be passed to evaluate via the temporary eval_candle_buffer
+    evaluate_mock.assert_called_once()
+    passed_buffer = evaluate_mock.call_args.kwargs["candle_buffer"]
+    assert len(passed_buffer) == 1
+    assert passed_buffer[0].close == 0
+
+@pytest.mark.asyncio
 async def test_run_heartbeat(mock_dependencies, dummy_session):
     import kairos.scheduler as sched
     sched.state.active_config = dummy_session

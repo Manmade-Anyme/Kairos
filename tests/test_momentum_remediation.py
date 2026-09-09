@@ -218,6 +218,25 @@ def test_fingerprint_tracks_meaningful_momentum_diagnostics_but_not_detail_jitte
     assert condition_fingerprint([base]) == condition_fingerprint([jitter])
     assert condition_fingerprint([base]) != condition_fingerprint([changed])
 
+def test_fingerprint_includes_evaluated_at_timestamp():
+    from datetime import datetime
+    import pytest
+    from zoneinfo import ZoneInfo
+    IST = ZoneInfo("Asia/Kolkata")
+    
+    t1 = datetime(2026, 3, 23, 10, 5, tzinfo=IST)
+    t2 = datetime(2026, 3, 23, 10, 6, tzinfo=IST)
+    
+    from kairos.models import MomentumDiagnostics
+    d1 = MomentumDiagnostics(evaluated_at=t1, range_red_threshold=0, range_green_threshold=0, volume_multiplier=0)
+    d2 = MomentumDiagnostics(evaluated_at=t2, range_red_threshold=0, range_green_threshold=0, volume_multiplier=0)
+    
+    base = ConditionResult(name="momentum", status="YELLOW", points=0, max_points=1, detail="...", diagnostics=d1)
+    different_time = ConditionResult(name="momentum", status="YELLOW", points=0, max_points=1, detail="...", diagnostics=d2)
+    
+    # Fingerprints should differ because `evaluated_at` is different
+    assert condition_fingerprint([base]) != condition_fingerprint([different_time])
+
 
 @pytest.mark.asyncio
 async def test_fetcher_selects_the_latest_completed_candle_and_retains_history():

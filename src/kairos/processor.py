@@ -5,12 +5,14 @@ All data comes from in-memory buffers or the current cycle's fetched objects.
 """
 
 from collections import deque
+from datetime import time, timedelta
 import math
 
 from kairos.config import settings
 from kairos.models import (
     ATMStrikes,
     ConditionResult,
+    MomentumDiagnostics,
     OHLCVCandle,
     OIFlowResult,
     PreviousDayLevels,
@@ -23,13 +25,15 @@ from kairos.models import (
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _result(name: str, status: str, points: int, max_points: int, detail: str) -> ConditionResult:
+def _result(name: str, status: str, points: int, max_points: int, detail: str,
+            diagnostics: MomentumDiagnostics | None = None) -> ConditionResult:
     return ConditionResult(
         name=name,
         status=status,
         points=points,
         max_points=max_points,
         detail=detail,
+        diagnostics=diagnostics,
     )
 
 
@@ -114,57 +118,89 @@ def score_momentum(candle_buffer: deque) -> ConditionResult:
     window = settings.momentum_candle_window
     vol_lookback = settings.momentum_volume_lookback
 
-    if len(candle_buffer) < window:
-        return _caution("momentum", 1, f"Warming up — need {window} candles")
-
-    recent: list[OHLCVCandle] = list(candle_buffer)[-window:]
+    required = max(window + 1, vol_lookback + 1)
     all_candles: list[OHLCVCandle] = list(candle_buffer)
-
-    # Part A — Range and volume
-    price_high = max(c.high for c in recent)
-    price_low = min(c.low for c in recent)
-    current_close = recent[-1].close
-
-    price_range = price_high - price_low
-    range_pct = (price_range / current_close) * 100
-
-    # Volume spike: current vs average of last N candles
-    if len(all_candles) >= vol_lookback:
-        avg_vol = sum(c.volume for c in all_candles[-vol_lookback:]) / vol_lookback
-    else:
-        avg_vol = sum(c.volume for c in all_candles) / len(all_candles)
-
-    current_vol = recent[-1].volume
-    volume_spike = current_vol > (avg_vol * settings.momentum_volume_multiplier)
-
-    # Part B — Directional consistency (how many candles trend in same direction)
-    closes = [c.close for c in recent]
-    up_count = sum(1 for i in range(1, len(closes)) if closes[i] > closes[i - 1])
-    down_count = sum(1 for i in range(1, len(closes)) if closes[i] < closes[i - 1])
-    trend_count = max(up_count, down_count)
-
-    direction = "up" if up_count > down_count else "down"
-
-    # Score
-    detail = (
-        f"{range_pct:.2f}% range, "
-        f"{'vol spike' if volume_spike else 'no vol spike'}, "
-        f"trend {trend_count}/5 {direction}"
+    latest = all_candles[-1] if all_candles else None
+    diagnostics = MomentumDiagnostics(
+        evaluated_at=latest.timestamp if latest else None,
+        range_red_threshold=settings.momentum_range_yellow,
+        range_green_threshold=settings.momentum_range_green,
+        volume_multiplier=settings.momentum_volume_multiplier,
     )
+    if len(all_candles) < required:
+        diagnostics.readiness = "data_unavailable"
+        diagnostics.failed_gates = ["history"]
+        return _result("momentum", "YELLOW", 0, 1,
+                       f"Data unavailable — need {required} completed candles", diagnostics)
 
-    if (
-        range_pct > settings.momentum_range_green
-        and volume_spike
-        and trend_count >= settings.momentum_trend_count_green
-    ):
-        return _result("momentum", "GREEN", 1, 1, detail)
-    elif (
-        range_pct < settings.momentum_range_yellow
-        or trend_count <= 2
-    ):
-        return _result("momentum", "RED", 0, 1, detail)
-    else:
-        return _result("momentum", "YELLOW", 0, 1, detail)
+    timestamps = [c.timestamp for c in all_candles[-required:]]
+    def session(timestamp):
+        minute = timestamp.timetz().replace(tzinfo=None)
+        if time(9, 15) <= minute <= time(11, 45):
+            return "morning"
+        if time(13, 0) <= minute <= time(15, 25):
+            return "afternoon"
+        return None
+    sessions = [session(timestamp) if timestamp.tzinfo is not None else None for timestamp in timestamps]
+    if any(value is None for value in sessions) or len(set(sessions)) != 1:
+        diagnostics.readiness = "data_unavailable"
+        diagnostics.failed_gates = ["session"]
+        return _result("momentum", "YELLOW", 0, 1, "Data unavailable — candle window crosses a session boundary", diagnostics)
+    if any(right - left != timedelta(minutes=1) for left, right in zip(timestamps, timestamps[1:])):
+        diagnostics.readiness = "data_unavailable"
+        diagnostics.failed_gates = ["gap"]
+        return _result("momentum", "YELLOW", 0, 1, "Data unavailable — non-consecutive candle window", diagnostics)
+
+    recent = all_candles[-(window + 1):]
+    baseline = all_candles[-(vol_lookback + 1):-1]
+    values = [c.open for c in recent] + [c.high for c in recent] + [c.low for c in recent] + [c.close for c in recent]
+    volumes = [c.volume for c in baseline] + [recent[-1].volume]
+    if (not all(math.isfinite(value) for value in values)
+            or any(c.high < max(c.open, c.close) or c.low > min(c.open, c.close) or c.high < c.low for c in recent)
+            or any(volume is None or not math.isfinite(volume) or volume < 0 for volume in volumes)):
+        diagnostics.readiness = "data_unavailable"
+        diagnostics.failed_gates = ["volume" if any(volume is None or not isinstance(volume, (int, float)) or not math.isfinite(volume) or volume < 0 for volume in volumes) else "ohlc"]
+        return _result("momentum", "YELLOW", 0, 1, "Data unavailable — invalid OHLCV", diagnostics)
+
+    closes = [c.close for c in recent]
+    deltas = [right - left for left, right in zip(closes, closes[1:])]
+    up_count = sum(delta > 0 for delta in deltas)
+    down_count = sum(delta < 0 for delta in deltas)
+    flat_count = len(deltas) - up_count - down_count
+    dominant_count = max(up_count, down_count)
+    direction = "up" if up_count > down_count else "down" if down_count > up_count else "mixed" if up_count else "flat"
+    range_pct = ((max(c.high for c in recent[1:]) - min(c.low for c in recent[1:])) / closes[-1]) * 100
+    baseline_average = sum(baseline_volume for baseline_volume in baseline and [c.volume for c in baseline]) / vol_lookback
+    current_volume = recent[-1].volume
+    diagnostics.up_count = up_count
+    diagnostics.down_count = down_count
+    diagnostics.flat_count = flat_count
+    diagnostics.direction = direction
+    diagnostics.dominant_count = dominant_count
+    diagnostics.range_pct = range_pct
+    diagnostics.current_volume = current_volume
+    diagnostics.baseline_average = baseline_average
+    diagnostics.baseline_count = len(baseline)
+    if baseline_average == 0:
+        diagnostics.readiness = "data_unavailable"
+        diagnostics.failed_gates = ["volume"]
+        return _result("momentum", "YELLOW", 0, 1, "Data unavailable — zero volume baseline", diagnostics)
+    diagnostics.volume_ratio = current_volume / baseline_average
+    at_green_boundary = math.isclose(range_pct, settings.momentum_range_green, rel_tol=0.0, abs_tol=1e-9)
+    at_red_boundary = math.isclose(range_pct, settings.momentum_range_yellow, rel_tol=0.0, abs_tol=1e-9)
+    range_green = range_pct > settings.momentum_range_green and not at_green_boundary
+    trend_green = dominant_count >= settings.momentum_trend_count_green
+    volume_spike = current_volume > baseline_average * settings.momentum_volume_multiplier
+    diagnostics.failed_gates = [name for name, passed in (("range", range_green), ("trend", trend_green), ("volume", volume_spike)) if not passed]
+    detail = (f"{range_pct:.2f}% range (>{settings.momentum_range_green:.2f}% green; <{settings.momentum_range_yellow:.2f}% red) | "
+              f"up {up_count}/5, down {down_count}/5, flat {flat_count}/5 ({direction}) | "
+              f"volume {current_volume:.0f} vs {baseline_average:.0f} ({diagnostics.volume_ratio:.2f}x; {len(baseline)} baseline) | "
+              f"{'all gates pass' if not diagnostics.failed_gates else 'failed: ' + ', '.join(diagnostics.failed_gates)}")
+    if range_green and trend_green and volume_spike:
+        return _result("momentum", "GREEN", 1, 1, detail, diagnostics)
+    if (range_pct < settings.momentum_range_yellow and not at_red_boundary) or dominant_count < settings.momentum_trend_count_yellow:
+        return _result("momentum", "RED", 0, 1, detail, diagnostics)
+    return _result("momentum", "YELLOW", 0, 1, detail, diagnostics)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

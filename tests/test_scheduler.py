@@ -8,8 +8,9 @@ sys.modules['apscheduler.schedulers'] = MagicMock()
 sys.modules['apscheduler.schedulers.asyncio'] = MagicMock()
 sys.modules['apscheduler.triggers.interval'] = MagicMock()
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from collections import deque
+from zoneinfo import ZoneInfo
 
 from kairos.scheduler import run_cycle, run_heartbeat, state, is_active_session, run_startup_checks
 from kairos.models import SessionConfig, OHLCVCandle, PreviousDayLevels, EnvironmentScore, OptionChainRow
@@ -35,7 +36,7 @@ def dummy_session():
 @pytest.fixture
 def dummy_candle():
     return OHLCVCandle(
-        timestamp=datetime.now(),
+        timestamp=datetime.now(ZoneInfo("Asia/Kolkata")).replace(second=0, microsecond=0) - timedelta(minutes=1),
         symbol="NIFTY",
         interval=1,
         open=22000.0,
@@ -568,6 +569,5 @@ async def test_iv_cap_hysteresis_releases(mock_dependencies, dummy_session, dumm
     await sched.run_cycle()
     assert sched.state.iv_cap_active is False  # cap should be released
     assert strong_iv_score.iv_capped is False
-
 
 

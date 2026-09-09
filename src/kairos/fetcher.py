@@ -5,6 +5,7 @@ All calls are async and use a shared httpx.AsyncClient.
 """
 
 import asyncio
+import math
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -42,6 +43,7 @@ class DhanFetcher:
 
     def __init__(self) -> None:
         self._client: Optional[httpx.AsyncClient] = None
+        self.last_completed_candles: list[OHLCVCandle] = []
 
     async def start(self) -> None:
         """Initialise the shared HTTP client. Call once at startup."""
@@ -247,6 +249,7 @@ class DhanFetcher:
     async def get_latest_candle(
         self,
         symbol: str,
+        now: datetime | None = None,
     ) -> OHLCVCandle:
         """
         Fetch the latest 1-minute OHLCV candle for the underlying index.
@@ -288,25 +291,35 @@ class DhanFetcher:
         if not timestamps:
             raise DhanAPIError(f"No candle data returned for {symbol}")
 
-        # Use the last (most recent) candle for OHLCV fields
-        idx = -1
-        ts = datetime.fromtimestamp(timestamps[idx], tz=IST)
-        o = float(opens[idx])
-        h = float(highs[idx])
-        lo = float(lows[idx])
-        c = float(closes[idx])
-        v = int(volumes[idx])
+        if not all(len(series) == len(timestamps) for series in (opens, highs, lows, closes, volumes)):
+            raise DhanAPIError("Malformed intraday candle arrays")
+        now = now or datetime.now(IST)
+        completed = []
+        for idx in range(len(timestamps)):
+            try:
+                ts = datetime.fromtimestamp(timestamps[idx], tz=IST)
+                o, h, lo, c = (float(value) for value in (opens[idx], highs[idx], lows[idx], closes[idx]))
+                v = None if volumes[idx] is None else float(volumes[idx])
+                valid = (all(math.isfinite(value) for value in (o, h, lo, c))
+                         and h >= max(o, c) and lo <= min(o, c) and h >= lo
+                         and (v is None or math.isfinite(v) and v >= 0))
+                if valid and ts + timedelta(minutes=1) <= now:
+                    completed.append((idx, ts, o, h, lo, c, v))
+            except (TypeError, ValueError, OSError):
+                continue
+        if not completed:
+            raise DhanAPIError(f"No completed valid one-minute candle returned for {symbol}")
+        completed.sort(key=lambda candle: candle[1])
+        idx, ts, o, h, lo, c, v = completed[-1]
 
-        # Compute full-day VWAP from ALL candles in the response.
+        # Compute VWAP only from valid completed candles; a forming row must
+        # not influence the completed observation that will be scored.
         # VWAP = Σ(typical_price_i × volume_i) / Σ(volume_i)
         # This gives a true session VWAP that reflects all trading since 09:15.
         cum_vol = 0
         cum_num = 0.0
-        for i in range(len(closes)):
-            ci = float(closes[i])
-            hi = float(highs[i])
-            li = float(lows[i])
-            vi = int(volumes[i])
+        for _, _, _, hi, li, ci, vi in completed:
+            vi = vi or 0.0
             tp = (hi + li + ci) / 3
             cum_vol += vi
             cum_num += tp * vi
@@ -315,19 +328,15 @@ class DhanFetcher:
             vwap = cum_num / cum_vol
         else:
             # Fallback: equal-weighted TWAP if all volumes are 0
-            n = len(closes)
-            vwap = sum((float(highs[i]) + float(lows[i]) + float(closes[i])) / 3 for i in range(n)) / n if n > 0 else c
+            vwap = sum((hi + lo + ci) / 3 for _, _, _, hi, lo, ci, _ in completed) / len(completed)
 
-        return OHLCVCandle(
-            timestamp=ts,
-            symbol=symbol,
-            open=o,
-            high=h,
-            low=lo,
-            close=c,
-            volume=v,
-            vwap=round(vwap, 2),
-        )
+        self.last_completed_candles = [
+            OHLCVCandle(timestamp=candle_ts, symbol=symbol, open=candle_open,
+                         high=candle_high, low=candle_low, close=candle_close,
+                         volume=candle_volume, vwap=round(vwap, 2))
+            for _, candle_ts, candle_open, candle_high, candle_low, candle_close, candle_volume in completed
+        ]
+        return self.last_completed_candles[-1]
 
     async def get_previous_day_levels(self, symbol: str) -> PreviousDayLevels:
         """

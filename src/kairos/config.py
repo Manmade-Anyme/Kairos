@@ -3,6 +3,9 @@ config.py — All environment variables, constants, and scoring thresholds.
 Single source of truth. Every threshold in the system lives here.
 """
 
+import math
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -156,6 +159,20 @@ class Settings(BaseSettings):
     # Total max score = 8 (IV=2, all others=1 each)
     score_go_min: int = 7        # 7–8 → GO
     score_caution_min: int = 4   # 4–6 → CAUTION; 0–3 → AVOID
+
+    @model_validator(mode="after")
+    def validate_momentum_settings(self):
+        if self.momentum_candle_window != 5:
+            raise ValueError("momentum_candle_window must be 5 for the six-close contract")
+        if self.momentum_volume_lookback <= 0:
+            raise ValueError("momentum_volume_lookback must be positive")
+        if not (self.momentum_range_yellow < self.momentum_range_green):
+            raise ValueError("momentum range thresholds must be ordered")
+        if not (0 < self.momentum_trend_count_yellow < self.momentum_trend_count_green <= 5):
+            raise ValueError("momentum trend thresholds must be within five deltas")
+        if not math.isfinite(self.momentum_volume_multiplier) or self.momentum_volume_multiplier <= 0:
+            raise ValueError("momentum_volume_multiplier must be positive and finite")
+        return self
 
 
 

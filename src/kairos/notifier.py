@@ -89,7 +89,7 @@ class Notifier:
             await self._client.aclose()
         logger.info("Notifier: HTTP client closed")
 
-    async def _post(self, webhook_url: str, payload: dict) -> None:
+    async def _post(self, webhook_url: str, payload: dict) -> bool:
         """Fire-and-forget webhook POST. Logs on failure, never raises."""
         # Always print payload to terminal for local debugging
         content = payload.get("content", "")
@@ -98,11 +98,11 @@ class Notifier:
         
         if not webhook_url or not webhook_url.startswith("http"):
             logger.error("Failed to post to Discord: Webhook URL is invalid or not configured correctly in .env. Skipping.")
-            return
+            return False
             
         if not self._client:
             logger.error("Notifier not started")
-            return
+            return False
         try:
             response = await self._client.post(webhook_url, json=payload)
             if response.status_code not in (200, 204):
@@ -110,14 +110,17 @@ class Notifier:
                     f"Discord webhook returned {response.status_code}: "
                     f"{response.text[:200]}"
                 )
+                return False
+            return True
         except httpx.RequestError as e:
             logger.error(f"Failed to post to Discord: {e}")
+            return False
 
     # ─────────────────────────────────────────────────────────────────────
     # Environment alerts → #environment channel
     # ─────────────────────────────────────────────────────────────────────
 
-    async def post_environment_alert(self, score: EnvironmentScore) -> None:
+    async def post_environment_alert(self, score: EnvironmentScore) -> bool:
         """
         Post GO / CAUTION / AVOID alert to #environment channel.
         Only called when state changes.
@@ -184,8 +187,8 @@ class Notifier:
         lines.append(f"🕐 {time_str}")
 
         content = "\n".join(lines)
-        await self._post(settings.discord_webhook_url, {"content": content})
         logger.info(f"Posted {score.status} alert to #environment — score {score.score}/8")
+        return await self._post(settings.discord_webhook_url, {"content": content})
 
     # ─────────────────────────────────────────────────────────────────────
     # Health messages → #system-check channel

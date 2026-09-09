@@ -9,6 +9,7 @@ import signal
 import sys
 from collections import deque
 from datetime import date, datetime, timedelta
+import math
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -19,10 +20,60 @@ from kairos.config import settings
 from kairos.db import db, load_dhan_credentials_from_supabase
 from kairos.engine import OIFlowBuffer, evaluate
 from kairos.fetcher import DhanAPIError, DhanAuthError, fetcher
-from kairos.models import PreviousDayLevels, SessionConfig
+from kairos.models import ConditionResult, OHLCVCandle, PreviousDayLevels, SessionConfig
 from kairos.notifier import notifier
 
 IST = ZoneInfo("Asia/Kolkata")
+
+
+def candle_is_completed(candle_timestamp: datetime, *, now: datetime) -> bool:
+    """A Dhan timestamp is the opening boundary of a completed one-minute bar."""
+    return (
+        candle_timestamp.tzinfo is not None
+        and candle_timestamp.second == candle_timestamp.microsecond == 0
+        and candle_timestamp + timedelta(minutes=1) <= now
+    )
+
+
+def _valid_candle(candle: OHLCVCandle) -> bool:
+    values = (candle.open, candle.high, candle.low, candle.close)
+    return (
+        all(math.isfinite(value) for value in values)
+        and candle.high >= max(candle.open, candle.close)
+        and candle.low <= min(candle.open, candle.close)
+        and candle.high >= candle.low
+        and (candle.volume is None or (math.isfinite(candle.volume) and candle.volume >= 0))
+    )
+
+
+def upsert_completed_candle(buffer: deque, candle: OHLCVCandle, *, now: datetime) -> bool:
+    """Insert or revise a completed bar at its timestamp, preserving chronological order."""
+    if not candle_is_completed(candle.timestamp, now=now) or not _valid_candle(candle):
+        return False
+    by_timestamp = {item.timestamp: item for item in buffer}
+    by_timestamp[candle.timestamp] = candle
+    ordered = [by_timestamp[key] for key in sorted(by_timestamp)]
+    buffer.clear()
+    buffer.extend(ordered[-buffer.maxlen:] if buffer.maxlen else ordered)
+    return True
+
+
+def condition_fingerprint(conditions: list[ConditionResult], oi_event: tuple | None = None) -> tuple:
+    """Stable alert identity: semantic condition state, never decimal detail jitter."""
+    fingerprint = []
+    for condition in sorted(conditions, key=lambda item: str(item.name)):
+        diagnostic = getattr(condition, "diagnostics", None)
+        if not hasattr(diagnostic, "readiness"):
+            diagnostic = None
+        fingerprint.append((
+            condition.name,
+            condition.status,
+            diagnostic.readiness if diagnostic else None,
+            diagnostic.direction if diagnostic else None,
+            diagnostic.dominant_count if diagnostic else None,
+            tuple(diagnostic.failed_gates) if diagnostic else (),
+        ))
+    return tuple(fingerprint) + (("oi_event", oi_event),) if oi_event is not None else tuple(fingerprint)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -45,6 +96,8 @@ class SessionState:
         self.oi_snapshot_buffer: deque = deque(maxlen=settings.oi_lookback_cycles)
         self.last_alerted_oi_phase: Optional[str] = None
         self.last_oi_event_fingerprint: Optional[tuple] = None
+        self.latest_evaluated_fingerprint: Optional[tuple] = None
+        self.last_successfully_notified_fingerprint: Optional[tuple] = None
 
         # Session tracking
         self.active_config: Optional[SessionConfig] = None
@@ -82,6 +135,8 @@ class SessionState:
         self.oi_snapshot_buffer.clear()
         self.last_alerted_oi_phase = None
         self.last_oi_event_fingerprint = None
+        self.latest_evaluated_fingerprint = None
+        self.last_successfully_notified_fingerprint = None
         self.cycle_count = 0
         self.warmup_complete = False
         self.previous_status = None
@@ -437,7 +492,18 @@ async def run_cycle() -> None:
             return
 
     # 5. Update in-memory buffers
-    state.candle_buffer.append(latest_candle)
+    if isinstance(latest_candle, OHLCVCandle):
+        now = datetime.now(IST)
+        if now - latest_candle.timestamp > timedelta(minutes=2):
+            logger.warning("Discarding stale one-minute candle")
+            return
+        historical_candles = getattr(fetcher, "last_completed_candles", None)
+        candles = historical_candles if isinstance(historical_candles, list) and historical_candles else [latest_candle]
+        if not all(upsert_completed_candle(state.candle_buffer, candle, now=now) for candle in candles):
+            logger.warning("Discarding incomplete or invalid one-minute candle")
+            return
+    else:  # Test doubles do not represent production fetcher output.
+        state.candle_buffer.append(latest_candle)
 
     # Find ATM IV and append to iv_buffer
     interval = settings.nifty_strike_interval
@@ -568,18 +634,9 @@ async def run_cycle() -> None:
     elif score.conditions:
         significant_change = True  # First cycle with scoring data
 
-    if (score.state_changed or just_warmed_up or significant_change or oi_event_changed) and state.warmup_complete:
-        should_alert = oi_event_changed
-
-        if score.score >= 6:
-            state.is_silenced = False
-
-        if not should_alert and score.score >= 6:
-            should_alert = True
-        elif not should_alert and not state.is_silenced:
-            state.is_silenced = True
-            should_alert = True
-
+    state.latest_evaluated_fingerprint = condition_fingerprint(score.conditions, oi_fingerprint)
+    if state.warmup_complete:
+        should_alert = state.latest_evaluated_fingerprint != state.last_successfully_notified_fingerprint
         if should_alert:
             if score.state_changed:
                 logger.info(
@@ -589,11 +646,12 @@ async def run_cycle() -> None:
             
             if current_oi_phase:
                 state.last_alerted_oi_phase = current_oi_phase
-            if oi_fingerprint is not None:
-                state.last_oi_event_fingerprint = oi_fingerprint
-
-            # Post environment alert for significant shifts
-            await notifier.post_environment_alert(score)
+            sent = await notifier.post_environment_alert(score)
+            if sent is not False:
+                state.last_successfully_notified_fingerprint = state.latest_evaluated_fingerprint
+                if oi_fingerprint is not None:
+                    state.last_oi_event_fingerprint = oi_fingerprint
+            state.is_silenced = score.score < 6
         else:
             logger.debug(f"Alert silenced (score {score.score}/8 < 6)")
 

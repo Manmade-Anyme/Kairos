@@ -580,7 +580,7 @@ async def test_run_cycle_oi_rolling_calculation(mock_deps, mocker, make_option_r
 
 
 @pytest.mark.asyncio
-async def test_run_cycle_preserves_timestamp_through_nine_obsolete_candles(
+async def test_run_cycle_rejects_stale_candles_before_oi_evaluation(
     mock_deps, mocker, make_candle, make_option_row, mock_now
 ):
     import kairos.engine as engine
@@ -651,14 +651,9 @@ async def test_run_cycle_preserves_timestamp_through_nine_obsolete_candles(
         for _ in range(10):
             await run_cycle()
 
-        accepted_timestamps = [
-            call.kwargs["last_accepted_timestamp"]
-            for call in sched.evaluate.call_args_list
-        ]
-        assert accepted_timestamps == [None, *([fresh_timestamp] * 9)]
-        assert sched.state.last_accepted_oi_timestamp == fresh_timestamp
-        assert len(sched.state.oi_flow_buffer) == 8
-        assert all(reading.stale for reading in sched.state.oi_flow_buffer)
+        assert sched.evaluate.call_count == 0
+        assert sched.state.last_accepted_oi_timestamp is None
+        assert not sched.state.oi_flow_buffer
     finally:
         sched.state.reset_buffers()
 

@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **MANM-127 Momentum filter remediation:** only completed, validated IST
+  one-minute candles enter the ordered revision-aware buffer; momentum now
+  scores five deltas across six closes, evaluates the latest-five range, and
+  uses a strict preceding-15 volume baseline. Added data-unavailable
+  diagnostics, concise alert evidence, configuration guards, and decoupled
+  successful-send condition fingerprints so below-six recoveries and
+  deteriorations alert reliably without duplicating successful states.
 - **MANM-103 OI Flow remediation:** made consensus current-first and direction-matched, removed PCR from trade gates, validated the complete active Greek strike grid, corrected Vega exposure normalization, capped GO on effective OI vetoes (including failed consensus), and emitted deduplicated OI events below the score-silencing threshold while retaining the first non-OI low-score transition alert. Preserve incomplete ATM rows for invalid-data gating, validate Greeks only in active scoring strikes, reject repeated or regressed timestamps, retain raw invalid-veto reasons, reject stale/invalid observations before derived vetoes, ignore stale or invalid samples in historical Vega-trap counts, and fingerprint semantic OI categories without diagnostic vote counts. Documented the explicit policy that Short Covering and Long Unwinding remain eligible (overriding the legacy buildup-only checklist).
 - **OI Flow Filter Remediation (Round 8):** Reset `state.is_silenced = False` on every cycle where score is >= 6 to ensure subsequent drops below 6 properly trigger their first transition alert. Appended `(NO TRADE)` to the failed directional consensus reason per ADR-103.
 - **OI Flow Filter Remediation (Round 9):** Persist the last accepted OI observation timestamp in scheduler session state and a bounded-deque fallback so repeated or regressed candles remain stale after the consensus window rolls over.

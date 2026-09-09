@@ -1,5 +1,6 @@
 import pytest
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo
 from kairos.models import (
     OHLCVCandle,
     OptionChainRow,
@@ -10,7 +11,7 @@ from kairos.models import (
 
 @pytest.fixture
 def mock_now():
-    return datetime(2026, 3, 22, 10, 0, 0)
+    return datetime(2026, 3, 22, 10, 0, 0, tzinfo=ZoneInfo("Asia/Kolkata"))
 
 @pytest.fixture
 def mock_date():
@@ -18,9 +19,13 @@ def mock_date():
 
 @pytest.fixture
 def make_candle(mock_now):
+    sequence = 0
     def _make(close, volume=1000, high=None, low=None, vwap=None):
+        nonlocal sequence
+        timestamp = mock_now + timedelta(minutes=sequence)
+        sequence += 1
         return OHLCVCandle(
-            timestamp=mock_now,
+            timestamp=timestamp,
             symbol="NIFTY",
             open=close,
             high=high if high is not None else close,
@@ -100,5 +105,3 @@ def mock_test_settings(monkeypatch):
     from kairos.config import settings
     monkeypatch.setattr(settings, "oi_lookback_cycles", 6)
     monkeypatch.setattr(settings, "candle_buffer_size", 15)
-
-

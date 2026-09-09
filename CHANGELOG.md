@@ -33,6 +33,13 @@ All notable changes to this project will be documented in this file.
     `upsert_completed_candle` causes `run_cycle` to return early before
     `evaluate` is called (lines 503-504).
   Full suite: **198 passed, 0 failed**.
+- **MANM-127 PR Reviewer P2 fix (`processor.py:195-196`):** Momentum `detail`
+  now opens with `[YYYY-MM-DD HH:MM]` (the evaluated candle's IST timestamp)
+  so operators can identify the exact candle in Discord alerts and DB environment
+  logs. Guards against `None` `evaluated_at` with `"unknown"` fallback.
+  Added 1 test: `test_momentum_detail_includes_evaluated_candle_timestamp`.
+  Full suite: **199 passed, 0 failed**.
+
 
 
 ### Changed

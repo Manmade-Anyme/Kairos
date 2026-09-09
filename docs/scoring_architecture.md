@@ -29,13 +29,15 @@ Based on the current score and specifically the state of the Implied Volatility 
 **Weight:** 1 Point | **Time Parameter:** 5-Minute Lookback + 15-Minute Volume Avg
 **Logic:** Ensures the underlying index is actually moving in a uniform direction rather than chopping erratically.
 
-* **Data Source:** Rolling 15-candle OHLCV In-Memory Buffer.
+* **Data Source:** Rolling 20-candle OHLCV In-Memory Buffer (strict 1-minute completed candle ingestion with timestamp deduplication; current/incomplete minute is ignored).
 * **Three Checks:**
-  1. *Range:* `(Max High - Min Low) / Spot * 100` over the last 5 minutes.
-  2. *Volume:* The latest candle volume must be > 1.5x the average volume of the last 20 candles.
-  3. *Direction Consistency:* Out of the last 5 candles, are they trending predominately UP or DOWN?
+  1. *Range:* `(Max High - Min Low) / Spot * 100` over the latest 5 completed candles.
+  2. *Volume:* The latest completed candle volume must be > 1.5x the average volume of the preceding 15 completed candles (excluding the evaluated candle itself).
+  3. *Direction Consistency:* Trend evaluation across 6 completed closes (yielding 5 close-to-close deltas). Out of these 5 deltas, >= 4 must be predominately UP or DOWN.
 * **🟢 Green (1 Pt):** Range > 0.30% **AND** Volume Spiked **AND** Trend >= 4/5 candles uniform.
 * **🔴 Red (0 Pts):** Range < 0.15% **OR** Trend <= 2/5 candles (heavy chop).
+
+**Decoupled Transition Alerting:** Condition-level deterioration and recovery alerts are decoupled from the strict 'GO' state. The system will broadcast diagnostic alerts for condition transitions even when the total score is below 6, providing earlier insight into momentum shifts.
 
 ### Condition 3: ATM OI Flow (Greeks-Aware Scoring Engine)
 **Weight:** 1 Point | **Time Parameter:** 15-Minute Rolling Baseline + 8-Minute Rolling Consensus Filter (ADR-021)

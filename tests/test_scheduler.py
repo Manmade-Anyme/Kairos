@@ -635,3 +635,451 @@ async def test_iv_cap_hysteresis_releases(mock_dependencies, dummy_session, dumm
     assert sched.state.iv_cap_active is False  # cap should be released
     assert strong_iv_score.iv_capped is False
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MANM-137: Alert debouncing and deduplication during low-score periods
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_run_cycle_suppress_sub_indicator_jitter_in_caution(
+    mock_dependencies, dummy_session, dummy_candle, dummy_levels, dummy_score, mocker
+):
+    """
+    MANM-137 Change 1:
+    When in CAUTION (score < 6), alert once on entry with initial blocking reasons,
+    then remain completely silent during internal diagnostic shifts (vega_trap toggles,
+    nde_state toggles, failure reason changes, or candle evaluated_at timestamp advances).
+    """
+    import kairos.scheduler as sched
+    from kairos.models import ConditionResult, OIFlowResult, TrendPhase, MomentumDiagnostics
+
+    sched.state.reset_buffers()
+    sched.state.startup_done = True
+    sched.state.in_session = True
+    sched.state.warmup_complete = True
+    sched.state.prev_levels = dummy_levels
+    sched.state.active_config = dummy_session
+
+    sched.db.get_active_session = AsyncMock(return_value=dummy_session)
+    sched.fetcher.get_option_chain = AsyncMock(return_value=[])
+    sched.fetcher.get_latest_candle = AsyncMock(return_value=dummy_candle)
+    sched.db.write_environment_log = AsyncMock()
+    sched.notifier.post_environment_alert = AsyncMock(return_value=True)
+
+    mocker.patch("kairos.scheduler.is_active_session", return_value=True)
+    mocker.patch("kairos.scheduler.is_lunch_break", return_value=False)
+
+    t0 = datetime(2026, 3, 23, 10, 5, tzinfo=ZoneInfo("Asia/Kolkata"))
+
+    # Cycle 1: Enter CAUTION (score 4/8). Initial alert fires.
+    oi_1 = OIFlowResult(
+        score=0, phase=TrendPhase.NEUTRAL,
+        reason="Current Vega trap active — NO TRADE",
+        gex_state="neutral", nde_state="ambiguous", vega_trap=True,
+        pcr=1.0, iv_skew=0.0, effective_veto=True,
+    )
+    score_1 = dummy_score.model_copy(update={
+        "score": 4, "status": "CAUTION", "oi_flow_result": oi_1,
+        "conditions": [
+            ConditionResult(
+                name="momentum", status="RED", points=0, max_points=1, detail="down",
+                diagnostics=MomentumDiagnostics(evaluated_at=t0, readiness="ready", direction="neutral", dominant_count=0),
+            ),
+            ConditionResult(name="oi_flow", status="RED", points=0, max_points=1, detail=oi_1.reason),
+        ],
+    })
+    mocker.patch("kairos.scheduler.evaluate", return_value=score_1)
+
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 1
+    assert sched.state.is_silenced is True
+
+    # Cycle 2: vega_trap toggles off, but reason is still RED. MUST NOT alert.
+    oi_2 = oi_1.model_copy(update={"vega_trap": False})
+    score_2 = score_1.model_copy(update={"oi_flow_result": oi_2})
+    sched.evaluate.return_value = score_2
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 1
+
+    # Cycle 3: nde_state toggles from ambiguous to confirms, but overall RED. MUST NOT alert.
+    oi_3 = oi_2.model_copy(update={"nde_state": "confirms"})
+    score_3 = score_1.model_copy(update={"oi_flow_result": oi_3})
+    sched.evaluate.return_value = score_3
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 1
+
+    # Cycle 4: Reason transitions from Current Vega Trap to Historical recovery hold. MUST NOT alert.
+    oi_4 = oi_3.model_copy(update={"reason": "Historical recovery hold — Vega trap active in 3/8 cycles — NO TRADE"})
+    score_4 = score_1.model_copy(update={
+        "oi_flow_result": oi_4,
+        "conditions": [
+            score_1.conditions[0],
+            ConditionResult(name="oi_flow", status="RED", points=0, max_points=1, detail=oi_4.reason),
+        ],
+    })
+    sched.evaluate.return_value = score_4
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 1
+
+    # Cycle 5: Reason transitions to Mixed signals consensus not met. MUST NOT alert.
+    oi_5 = oi_4.model_copy(update={"reason": "Mixed signals — directional consensus not met (3/8 matching green cycles) (NO TRADE)"})
+    score_5 = score_1.model_copy(update={
+        "oi_flow_result": oi_5,
+        "conditions": [
+            score_1.conditions[0],
+            ConditionResult(name="oi_flow", status="RED", points=0, max_points=1, detail=oi_5.reason),
+        ],
+    })
+    sched.evaluate.return_value = score_5
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 1
+
+    # Cycle 6: New 1-minute candle arrives; evaluated_at advances by 1 minute.
+    # Sub-indicator timestamp advancement must NOT trigger an alert while in CAUTION.
+    t1 = t0 + timedelta(minutes=1)
+    score_6 = score_5.model_copy(update={
+        "conditions": [
+            ConditionResult(
+                name="momentum", status="RED", points=0, max_points=1, detail="down",
+                diagnostics=MomentumDiagnostics(evaluated_at=t1, readiness="ready", direction="neutral", dominant_count=0),
+            ),
+            score_5.conditions[1],
+        ],
+    })
+    sched.evaluate.return_value = score_6
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_oi_flow_alerts_only_on_red_green_flips(
+    mock_dependencies, dummy_session, dummy_candle, dummy_levels, dummy_score, mocker
+):
+    """
+    MANM-137 Change 2:
+    For Condition 3 (OI Flow), only trigger an alert if the overall condition status
+    flips from RED 🔴 to GREEN 🟢 or from GREEN 🟢 to RED 🔴.
+    Do not alert when transitioning between different RED failure reasons.
+    """
+    import kairos.scheduler as sched
+    from kairos.models import ConditionResult, OIFlowResult, TrendPhase
+
+    sched.state.reset_buffers()
+    sched.state.startup_done = True
+    sched.state.in_session = True
+    sched.state.warmup_complete = True
+    sched.state.prev_levels = dummy_levels
+    sched.state.active_config = dummy_session
+
+    sched.db.get_active_session = AsyncMock(return_value=dummy_session)
+    sched.fetcher.get_option_chain = AsyncMock(return_value=[])
+    sched.fetcher.get_latest_candle = AsyncMock(return_value=dummy_candle)
+    sched.db.write_environment_log = AsyncMock()
+    sched.notifier.post_environment_alert = AsyncMock(return_value=True)
+
+    mocker.patch("kairos.scheduler.is_active_session", return_value=True)
+    mocker.patch("kairos.scheduler.is_lunch_break", return_value=False)
+
+    # Cycle 1: CAUTION, OI Flow is RED (Current Vega trap). Alerts on entry.
+    oi_red1 = OIFlowResult(
+        score=0, phase=TrendPhase.LONG_BUILDUP,
+        reason="Current Vega trap active — NO TRADE",
+        gex_state="trend", nde_state="confirms", vega_trap=True,
+        pcr=1.0, iv_skew=0.0, effective_veto=True,
+    )
+    score_1 = dummy_score.model_copy(update={
+        "score": 4, "status": "CAUTION", "oi_flow_result": oi_red1,
+        "conditions": [
+            ConditionResult(name="oi_flow", status="RED", points=0, max_points=1, detail=oi_red1.reason),
+        ],
+    })
+    mocker.patch("kairos.scheduler.evaluate", return_value=score_1)
+
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 1
+
+    # Cycle 2: OI Flow transitions from Current Vega Trap to Historical recovery hold (still RED).
+    # MUST NOT alert!
+    oi_red2 = oi_red1.model_copy(update={"reason": "Historical recovery hold — Vega trap active — NO TRADE", "vega_trap": False})
+    score_2 = score_1.model_copy(update={
+        "oi_flow_result": oi_red2,
+        "conditions": [
+            ConditionResult(name="oi_flow", status="RED", points=0, max_points=1, detail=oi_red2.reason),
+        ],
+    })
+    sched.evaluate.return_value = score_2
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 1
+
+    # Cycle 3: OI Flow flips from RED to GREEN! MUST alert!
+    oi_green = OIFlowResult(
+        score=1, phase=TrendPhase.LONG_BUILDUP,
+        reason="Unified bullish conviction (Consensus 6/8) — GEX trend, NDE confirms",
+        gex_state="trend", nde_state="confirms", vega_trap=False,
+        pcr=1.0, iv_skew=0.0, effective_veto=False,
+    )
+    score_3 = score_1.model_copy(update={
+        "score": 5, "oi_flow_result": oi_green,
+        "conditions": [
+            ConditionResult(name="oi_flow", status="GREEN", points=1, max_points=1, detail=oi_green.reason),
+        ],
+    })
+    sched.evaluate.return_value = score_3
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 2
+
+    # Cycle 4: OI Flow remains GREEN. MUST NOT alert (deduplicated).
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 2
+
+    # Cycle 5: OI Flow flips back from GREEN to RED! MUST alert!
+    score_5 = score_2.model_copy()
+    sched.evaluate.return_value = score_5
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_immediate_alert_on_go_and_deduplication(
+    mock_dependencies, dummy_session, dummy_candle, dummy_levels, dummy_score, mocker
+):
+    """
+    MANM-137 Change 3 & 4:
+    Immediate alert when conditions align to ENVIRONMENT: GO (score >= 6).
+    Silence gate unlocks immediately.
+    Repeated identical GO states remain deduplicated.
+    Transitioning back to CAUTION alerts immediately.
+    """
+    import kairos.scheduler as sched
+    from kairos.models import ConditionResult, OIFlowResult, TrendPhase
+
+    sched.state.reset_buffers()
+    sched.state.startup_done = True
+    sched.state.in_session = True
+    sched.state.warmup_complete = True
+    sched.state.prev_levels = dummy_levels
+    sched.state.active_config = dummy_session
+
+    sched.db.get_active_session = AsyncMock(return_value=dummy_session)
+    sched.fetcher.get_option_chain = AsyncMock(return_value=[])
+    sched.fetcher.get_latest_candle = AsyncMock(return_value=dummy_candle)
+    sched.db.write_environment_log = AsyncMock()
+    sched.notifier.post_environment_alert = AsyncMock(return_value=True)
+
+    mocker.patch("kairos.scheduler.is_active_session", return_value=True)
+    mocker.patch("kairos.scheduler.is_lunch_break", return_value=False)
+
+    # Cycle 1: Environment in CAUTION (score 5/8). Alerts on entry.
+    c_caution = [
+        ConditionResult(name="momentum", status="GREEN", points=1, max_points=1, detail="up"),
+        ConditionResult(name="oi_flow", status="RED", points=0, max_points=1, detail="Mixed"),
+    ]
+    caution_score = dummy_score.model_copy(update={"score": 5, "status": "CAUTION", "conditions": c_caution})
+    mocker.patch("kairos.scheduler.evaluate", return_value=caution_score)
+
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 1
+    assert sched.state.is_silenced is True
+
+    # Cycle 2: Same CAUTION state -> silenced.
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 1
+
+    # Cycle 3: Transitions to ENVIRONMENT: GO (score 8/8).
+    # MUST unlock silence gate and alert immediately!
+    c_go = [
+        ConditionResult(name="momentum", status="GREEN", points=1, max_points=1, detail="up"),
+        ConditionResult(name="oi_flow", status="GREEN", points=1, max_points=1, detail="Unified"),
+    ]
+    go_score = dummy_score.model_copy(update={"score": 8, "status": "GO", "conditions": c_go})
+    sched.evaluate.return_value = go_score
+
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 2
+    assert sched.state.is_silenced is False
+
+    # Cycle 4: Identical GO state -> deduplicated, MUST NOT alert.
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 2
+
+    # Cycle 5: Still in GO, but score drops to 7/8 (genuine change in GO).
+    go_score_7 = dummy_score.model_copy(update={"score": 7, "status": "GO", "conditions": c_go})
+    sched.evaluate.return_value = go_score_7
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 3
+
+    # Cycle 6: Drops out of GO into CAUTION (score 5/8).
+    # MUST immediately alert and engage silence gate!
+    sched.evaluate.return_value = caution_score
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 4
+    assert sched.state.is_silenced is True
+
+    # Cycle 7: Remains in CAUTION (score 5/8).
+    # MUST NOT alert (silenced).
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 4
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_recovery_and_deterioration_between_caution_and_avoid(
+    mock_dependencies, dummy_session, dummy_candle, dummy_levels, dummy_score, mocker
+):
+    """
+    Acceptance Criteria:
+    A genuine recovery or deterioration is not suppressed solely because the score remains below 6.
+    Transition between CAUTION (4-5) and AVOID (<4) alerts once on each transition.
+    """
+    import kairos.scheduler as sched
+    from kairos.models import ConditionResult
+
+    sched.state.reset_buffers()
+    sched.state.startup_done = True
+    sched.state.in_session = True
+    sched.state.warmup_complete = True
+    sched.state.prev_levels = dummy_levels
+    sched.state.active_config = dummy_session
+
+    sched.db.get_active_session = AsyncMock(return_value=dummy_session)
+    sched.fetcher.get_option_chain = AsyncMock(return_value=[])
+    sched.fetcher.get_latest_candle = AsyncMock(return_value=dummy_candle)
+    sched.db.write_environment_log = AsyncMock()
+    sched.notifier.post_environment_alert = AsyncMock(return_value=True)
+
+    mocker.patch("kairos.scheduler.is_active_session", return_value=True)
+    mocker.patch("kairos.scheduler.is_lunch_break", return_value=False)
+
+    # Cycle 1: CAUTION (score 4/8). Initial alert.
+    score_caution_4 = dummy_score.model_copy(update={"score": 4, "status": "CAUTION", "conditions": []})
+    mocker.patch("kairos.scheduler.evaluate", return_value=score_caution_4)
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 1
+
+    # Cycle 2: Deteriorates to AVOID (score 3/8). Must alert!
+    score_avoid_3 = dummy_score.model_copy(update={"score": 3, "status": "AVOID", "conditions": []})
+    sched.evaluate.return_value = score_avoid_3
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 2
+
+    # Cycle 3: Remains in AVOID (score 3/8). Must be silent!
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 2
+
+    # Cycle 4: Recovers to CAUTION (score 5/8). Must alert!
+    score_caution_5 = dummy_score.model_copy(update={"score": 5, "status": "CAUTION", "conditions": []})
+    sched.evaluate.return_value = score_caution_5
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 3
+
+    # Cycle 5: Remains in CAUTION (score 5/8). Must be silent!
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_go_phase_change_without_status_flip_silenced(
+    mock_dependencies, dummy_session, dummy_candle, dummy_levels, dummy_score, mocker
+):
+    """
+    MANM-137 Review Finding 1:
+    In ENVIRONMENT: GO, Condition 3 (oi_flow) alerts ONLY on RED 🔴 ↔ GREEN 🟢 status flips.
+    A change in OI trend phase (e.g. GREEN Long Buildup → GREEN Short Buildup) with
+    unchanged score and GO status must remain silent.
+    """
+    import kairos.scheduler as sched
+    from kairos.models import ConditionResult, OIFlowResult, TrendPhase
+
+    sched.state.reset_buffers()
+    sched.state.startup_done = True
+    sched.state.in_session = True
+    sched.state.warmup_complete = True
+    sched.state.prev_levels = dummy_levels
+    sched.state.active_config = dummy_session
+
+    sched.db.get_active_session = AsyncMock(return_value=dummy_session)
+    sched.fetcher.get_option_chain = AsyncMock(return_value=[])
+    sched.fetcher.get_latest_candle = AsyncMock(return_value=dummy_candle)
+    sched.db.write_environment_log = AsyncMock()
+    sched.notifier.post_environment_alert = AsyncMock(return_value=True)
+
+    mocker.patch("kairos.scheduler.is_active_session", return_value=True)
+    mocker.patch("kairos.scheduler.is_lunch_break", return_value=False)
+
+    # Cycle 1: ENVIRONMENT: GO (score 8/8) with OI Flow GREEN (Long Buildup). Alerts on entry.
+    oi_green_lb = OIFlowResult(
+        score=1,
+        phase=TrendPhase.LONG_BUILDUP,
+        reason="Unified bullish conviction (Consensus 6/8) — GEX trend, NDE confirms",
+        gex_state="trend",
+        nde_state="confirms",
+        vega_trap=False,
+        pcr=1.2,
+        iv_skew=0.0,
+        effective_veto=False,
+    )
+    score_go_lb = dummy_score.model_copy(update={
+        "score": 8,
+        "status": "GO",
+        "oi_flow_result": oi_green_lb,
+        "conditions": [
+            ConditionResult(name="momentum", status="GREEN", points=1, max_points=1, detail="up"),
+            ConditionResult(name="oi_flow", status="GREEN", points=1, max_points=1, detail=oi_green_lb.reason),
+        ],
+    })
+    mocker.patch("kairos.scheduler.evaluate", return_value=score_go_lb)
+
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 1
+
+    # Cycle 2: Remains in GO (score 8/8), status GREEN, but OI phase changes to SHORT_BUILDUP.
+    # Status did NOT flip (GREEN -> GREEN). MUST remain silent!
+    oi_green_sb = OIFlowResult(
+        score=1,
+        phase=TrendPhase.SHORT_BUILDUP,
+        reason="Unified bearish conviction (Consensus 6/8) — GEX trend, NDE confirms",
+        gex_state="trend",
+        nde_state="confirms",
+        vega_trap=False,
+        pcr=0.8,
+        iv_skew=0.0,
+        effective_veto=False,
+    )
+    score_go_sb = dummy_score.model_copy(update={
+        "score": 8,
+        "status": "GO",
+        "oi_flow_result": oi_green_sb,
+        "conditions": [
+            ConditionResult(name="momentum", status="GREEN", points=1, max_points=1, detail=oi_green_sb.reason),
+            ConditionResult(name="oi_flow", status="GREEN", points=1, max_points=1, detail=oi_green_sb.reason),
+        ],
+    })
+    sched.evaluate.return_value = score_go_sb
+
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 1
+
+    # Cycle 3: OI Flow flips from GREEN to RED. MUST alert!
+    oi_red = OIFlowResult(
+        score=0,
+        phase=TrendPhase.SHORT_BUILDUP,
+        reason="Historical recovery hold — Vega trap active — NO TRADE",
+        gex_state="trend",
+        nde_state="confirms",
+        vega_trap=True,
+        pcr=0.8,
+        iv_skew=0.0,
+        effective_veto=True,
+    )
+    score_go_red = dummy_score.model_copy(update={
+        "score": 7,
+        "status": "GO",
+        "oi_flow_result": oi_red,
+        "conditions": [
+            ConditionResult(name="momentum", status="GREEN", points=1, max_points=1, detail="up"),
+            ConditionResult(name="oi_flow", status="RED", points=0, max_points=1, detail=oi_red.reason),
+        ],
+    })
+    sched.evaluate.return_value = score_go_red
+
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 2

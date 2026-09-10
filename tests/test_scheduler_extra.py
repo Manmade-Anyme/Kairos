@@ -208,7 +208,7 @@ async def test_run_cycle_significant_change_detection(mock_deps, mocker):
 
 @pytest.mark.asyncio
 async def test_run_cycle_alerts_changed_oi_veto_below_six_once(mock_deps, mocker):
-    """A semantic OI veto change bypasses low-score silencing but deduplicates."""
+    """MANM-137: Transitioning between RED failure reasons does not alert; count remains 1."""
     import kairos.scheduler as sched
 
     sched.state.reset_buffers()
@@ -251,11 +251,12 @@ async def test_run_cycle_alerts_changed_oi_veto_below_six_once(mock_deps, mocker
     second_score = first_score.model_copy(update={"oi_flow_result": second_oi})
     sched.evaluate.return_value = second_score
 
+    # MANM-137: changing one RED reason to another RED reason does NOT alert
     await run_cycle()
-    assert sched.notifier.post_environment_alert.await_count == 2
+    assert sched.notifier.post_environment_alert.await_count == 1
 
     await run_cycle()
-    assert sched.notifier.post_environment_alert.await_count == 2
+    assert sched.notifier.post_environment_alert.await_count == 1
 
 
 @pytest.mark.asyncio

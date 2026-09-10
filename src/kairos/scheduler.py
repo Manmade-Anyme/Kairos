@@ -99,6 +99,9 @@ class SessionState:
         self.last_oi_event_fingerprint: Optional[tuple] = None
         self.latest_evaluated_fingerprint: Optional[tuple] = None
         self.last_successfully_notified_fingerprint: Optional[tuple] = None
+        self.last_notified_status: Optional[str] = None
+        self.last_notified_conditions: list[ConditionResult] = []
+        self.last_notified_score: Optional[int] = None
 
         # Session tracking
         self.active_config: Optional[SessionConfig] = None
@@ -138,6 +141,9 @@ class SessionState:
         self.last_oi_event_fingerprint = None
         self.latest_evaluated_fingerprint = None
         self.last_successfully_notified_fingerprint = None
+        self.last_notified_status = None
+        self.last_notified_conditions = []
+        self.last_notified_score = None
         self.cycle_count = 0
         self.warmup_complete = False
         self.previous_status = None
@@ -613,73 +619,113 @@ async def run_cycle() -> None:
     await db.write_environment_log(score)
     state.last_successful_cycle_time = datetime.now(IST)
 
-    # 11. State change detection and Discord alert
+    # 11. State change detection and Discord alert (MANM-137)
 
-    # Detect significant changes: Status, Color, or OI Phase shifts (ADR-017)
-    significant_change = False
     current_oi_phase = oi_result.phase.value if oi_result else None
-
     if current_oi_phase is None:
         for c in score.conditions:
             if c.name == "oi_flow":
                 current_oi_phase = c.detail.split('|')[0].strip() if '|' in c.detail else c.detail
 
-    oi_fingerprint = None
-    if oi_result:
-        if oi_result.reason.startswith("Mixed signals — directional consensus not met"):
-            oi_reason_category = "directional consensus not met"
-        elif oi_result.reason.startswith("Historical recovery hold"):
-            oi_reason_category = "historical recovery hold"
-        elif oi_result.reason.startswith("Unified ") and " conviction (Consensus " in oi_result.reason:
-            oi_reason_category = "directional consensus"
-        else:
-            oi_reason_category = oi_result.reason
-        oi_fingerprint = (
-            oi_result.score,
-            oi_result.phase.value,
-            oi_result.gex_state,
-            oi_result.nde_state,
-            oi_result.vega_trap,
-            oi_result.data_valid,
-            oi_result.stale,
-            oi_result.effective_veto,
-            oi_reason_category,
-        )
-    oi_event_changed = oi_fingerprint != state.last_oi_event_fingerprint
+    state.latest_evaluated_fingerprint = condition_fingerprint(score.conditions)
 
-    if state.previous_conditions:
-        if len(state.previous_conditions) != len(score.conditions):
-            significant_change = True
-        else:
-            for old_c, new_c in zip(state.previous_conditions, score.conditions):
-                # Rule 1: Always alert if the Color (Status) of any condition changes
-                if old_c.status != new_c.status:
-                    significant_change = True
-            
-            # Rule 2: For OI Flow, alert if the Phase changes (consensus-smoothed)
-            if current_oi_phase and state.last_alerted_oi_phase:
-                if current_oi_phase != state.last_alerted_oi_phase:
-                    significant_change = True
-    elif score.conditions:
-        significant_change = True  # First cycle with scoring data
-
-    state.latest_evaluated_fingerprint = condition_fingerprint(score.conditions, oi_fingerprint)
     if state.warmup_complete:
-        should_alert = state.latest_evaluated_fingerprint != state.last_successfully_notified_fingerprint
+        ref_status = (
+            state.last_notified_status
+            if state.last_notified_status is not None
+            else state.previous_status
+        )
+        ref_conditions = (
+            state.last_notified_conditions
+            if state.last_notified_conditions
+            else state.previous_conditions
+        )
+        ref_cond_map = {c.name: c for c in ref_conditions}
+
+        is_first_cycle = (
+            ref_status is None
+            or state.last_successfully_notified_fingerprint is None
+        )
+
+        if is_first_cycle:
+            should_alert = True
+        else:
+            # 1. Environment status transition (GO ↔ CAUTION ↔ AVOID)
+            status_changed = score.status != ref_status
+
+            # 2. Condition 3 (OI Flow): alert ONLY on RED 🔴 ↔ GREEN 🟢 flips (Change 2)
+            curr_oi = score.get_condition("oi_flow")
+            ref_oi = ref_cond_map.get("oi_flow")
+            oi_flow_flipped = False
+            if curr_oi and ref_oi:
+                if (ref_oi.status == "RED" and curr_oi.status == "GREEN") or (
+                    ref_oi.status == "GREEN" and curr_oi.status == "RED"
+                ):
+                    oi_flow_flipped = True
+            elif curr_oi and not ref_oi:
+                oi_flow_flipped = True
+
+            # 3. Other conditions: alert on color/status change (e.g. Momentum RED ↔ GREEN)
+            other_condition_status_changed = False
+            for c in score.conditions:
+                if c.name != "oi_flow":
+                    ref_c = ref_cond_map.get(c.name)
+                    if ref_c is None or ref_c.status != c.status:
+                        other_condition_status_changed = True
+                        break
+
+            if len(score.conditions) != len(ref_conditions):
+                other_condition_status_changed = True
+
+            if score.score >= 6 and score.status == "GO":
+                # Change 3: Immediate Alerts for Favorable Trade Setups (ENVIRONMENT: GO)
+                if status_changed:
+                    should_alert = True
+                else:
+                    # In GO: alert on score change, condition status change, or OI Phase shift (ADR-017)
+                    score_changed = (
+                        state.last_notified_score is not None
+                        and state.last_notified_score != score.score
+                    )
+                    phase_changed = (
+                        current_oi_phase is not None
+                        and state.last_alerted_oi_phase is not None
+                        and current_oi_phase != state.last_alerted_oi_phase
+                    )
+                    should_alert = (
+                        other_condition_status_changed
+                        or oi_flow_flipped
+                        or score_changed
+                        or phase_changed
+                    )
+            else:
+                # Change 1: Suppress Sub-Indicator Jitter While in CAUTION / AVOID (Score < 6)
+                # Alert ONCE on entry to CAUTION / AVOID, then remain silent until genuine state transition:
+                # - Environment status changed (e.g. CAUTION ↔ AVOID or GO → CAUTION/AVOID)
+                # - Condition 3 flipped RED ↔ GREEN
+                # - Other condition status changed
+                should_alert = (
+                    status_changed
+                    or oi_flow_flipped
+                    or other_condition_status_changed
+                )
+
         if should_alert:
             if score.state_changed:
                 logger.info(
                     f"State change: {state.previous_status} → {score.status} "
                     f"(score {score.score}/8)"
                 )
-            
+
             if current_oi_phase:
                 state.last_alerted_oi_phase = current_oi_phase
+
             sent = await notifier.post_environment_alert(score)
             if sent is not False:
                 state.last_successfully_notified_fingerprint = state.latest_evaluated_fingerprint
-                if oi_fingerprint is not None:
-                    state.last_oi_event_fingerprint = oi_fingerprint
+                state.last_notified_status = score.status
+                state.last_notified_conditions = list(score.conditions)
+                state.last_notified_score = score.score
             state.is_silenced = score.score < 6
         else:
             logger.debug(f"Alert silenced (score {score.score}/8 < 6)")

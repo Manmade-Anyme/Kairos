@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **MANM-137 Alert debouncing and deduplication during low-score periods:** Suppressed sub-indicator diagnostic jitter (e.g. Vega trap toggling, NDE state shifts, candle evaluated timestamp advancement) during CAUTION / AVOID (`score < 6`), alerting once on entry and holding silence until a genuine state transition. Gated Condition 3 (OI Flow) alerts to overall RED 🔴 ↔ GREEN 🟢 status flips, eliminating duplicate alerts when shifting between different RED failure reasons. Preserved immediate alerts for favorable setups (ENVIRONMENT: GO, `score >= 6`) and ensured robust deduplication of identical notified states across cycles.
 - **MANM-127 P2 additional follow-up:** Included `diagnostics.evaluated_at` in the scheduler alert fingerprint to ensure each completed-candle evaluation is uniquely tracked. Updated `run_cycle` to evaluate invalid or non-minute-aligned completed candles using a temporary buffer, emitting the required timestamped YELLOW/data-unavailable result before discarding them.
 - **MANM-127 P2 follow-up:** Momentum configuration now rejects buffers that
   cannot retain the required six-close or preceding-volume history. Stale

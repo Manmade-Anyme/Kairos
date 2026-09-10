@@ -976,3 +976,110 @@ async def test_run_cycle_recovery_and_deterioration_between_caution_and_avoid(
     assert sched.notifier.post_environment_alert.await_count == 3
 
 
+@pytest.mark.asyncio
+async def test_run_cycle_go_phase_change_without_status_flip_silenced(
+    mock_dependencies, dummy_session, dummy_candle, dummy_levels, dummy_score, mocker
+):
+    """
+    MANM-137 Review Finding 1:
+    In ENVIRONMENT: GO, Condition 3 (oi_flow) alerts ONLY on RED 🔴 ↔ GREEN 🟢 status flips.
+    A change in OI trend phase (e.g. GREEN Long Buildup → GREEN Short Buildup) with
+    unchanged score and GO status must remain silent.
+    """
+    import kairos.scheduler as sched
+    from kairos.models import ConditionResult, OIFlowResult, TrendPhase
+
+    sched.state.reset_buffers()
+    sched.state.startup_done = True
+    sched.state.in_session = True
+    sched.state.warmup_complete = True
+    sched.state.prev_levels = dummy_levels
+    sched.state.active_config = dummy_session
+
+    sched.db.get_active_session = AsyncMock(return_value=dummy_session)
+    sched.fetcher.get_option_chain = AsyncMock(return_value=[])
+    sched.fetcher.get_latest_candle = AsyncMock(return_value=dummy_candle)
+    sched.db.write_environment_log = AsyncMock()
+    sched.notifier.post_environment_alert = AsyncMock(return_value=True)
+
+    mocker.patch("kairos.scheduler.is_active_session", return_value=True)
+    mocker.patch("kairos.scheduler.is_lunch_break", return_value=False)
+
+    # Cycle 1: ENVIRONMENT: GO (score 8/8) with OI Flow GREEN (Long Buildup). Alerts on entry.
+    oi_green_lb = OIFlowResult(
+        score=1,
+        phase=TrendPhase.LONG_BUILDUP,
+        reason="Unified bullish conviction (Consensus 6/8) — GEX trend, NDE confirms",
+        gex_state="trend",
+        nde_state="confirms",
+        vega_trap=False,
+        pcr=1.2,
+        iv_skew=0.0,
+        effective_veto=False,
+    )
+    score_go_lb = dummy_score.model_copy(update={
+        "score": 8,
+        "status": "GO",
+        "oi_flow_result": oi_green_lb,
+        "conditions": [
+            ConditionResult(name="momentum", status="GREEN", points=1, max_points=1, detail="up"),
+            ConditionResult(name="oi_flow", status="GREEN", points=1, max_points=1, detail=oi_green_lb.reason),
+        ],
+    })
+    mocker.patch("kairos.scheduler.evaluate", return_value=score_go_lb)
+
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 1
+
+    # Cycle 2: Remains in GO (score 8/8), status GREEN, but OI phase changes to SHORT_BUILDUP.
+    # Status did NOT flip (GREEN -> GREEN). MUST remain silent!
+    oi_green_sb = OIFlowResult(
+        score=1,
+        phase=TrendPhase.SHORT_BUILDUP,
+        reason="Unified bearish conviction (Consensus 6/8) — GEX trend, NDE confirms",
+        gex_state="trend",
+        nde_state="confirms",
+        vega_trap=False,
+        pcr=0.8,
+        iv_skew=0.0,
+        effective_veto=False,
+    )
+    score_go_sb = dummy_score.model_copy(update={
+        "score": 8,
+        "status": "GO",
+        "oi_flow_result": oi_green_sb,
+        "conditions": [
+            ConditionResult(name="momentum", status="GREEN", points=1, max_points=1, detail=oi_green_sb.reason),
+            ConditionResult(name="oi_flow", status="GREEN", points=1, max_points=1, detail=oi_green_sb.reason),
+        ],
+    })
+    sched.evaluate.return_value = score_go_sb
+
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 1
+
+    # Cycle 3: OI Flow flips from GREEN to RED. MUST alert!
+    oi_red = OIFlowResult(
+        score=0,
+        phase=TrendPhase.SHORT_BUILDUP,
+        reason="Historical recovery hold — Vega trap active — NO TRADE",
+        gex_state="trend",
+        nde_state="confirms",
+        vega_trap=True,
+        pcr=0.8,
+        iv_skew=0.0,
+        effective_veto=True,
+    )
+    score_go_red = dummy_score.model_copy(update={
+        "score": 7,
+        "status": "GO",
+        "oi_flow_result": oi_red,
+        "conditions": [
+            ConditionResult(name="momentum", status="GREEN", points=1, max_points=1, detail="up"),
+            ConditionResult(name="oi_flow", status="RED", points=0, max_points=1, detail=oi_red.reason),
+        ],
+    })
+    sched.evaluate.return_value = score_go_red
+
+    await sched.run_cycle()
+    assert sched.notifier.post_environment_alert.await_count == 2

@@ -58,7 +58,7 @@ def upsert_completed_candle(buffer: deque, candle: OHLCVCandle, *, now: datetime
     return True
 
 
-def condition_fingerprint(conditions: list[ConditionResult], oi_event: tuple | None = None) -> tuple:
+def condition_fingerprint(conditions: list[ConditionResult]) -> tuple:
     """Stable alert identity: semantic condition state, never decimal detail jitter."""
     fingerprint = []
     for condition in sorted(conditions, key=lambda item: str(item.name)):
@@ -74,7 +74,7 @@ def condition_fingerprint(conditions: list[ConditionResult], oi_event: tuple | N
             tuple(diagnostic.failed_gates) if diagnostic else (),
             diagnostic.evaluated_at.isoformat() if diagnostic and getattr(diagnostic, "evaluated_at", None) else None,
         ))
-    return tuple(fingerprint) + (("oi_event", oi_event),) if oi_event is not None else tuple(fingerprint)
+    return tuple(fingerprint)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -96,7 +96,6 @@ class SessionState:
         # OI rolling snapshots (15-minute rolling window)
         self.oi_snapshot_buffer: deque = deque(maxlen=settings.oi_lookback_cycles)
         self.last_alerted_oi_phase: Optional[str] = None
-        self.last_oi_event_fingerprint: Optional[tuple] = None
         self.latest_evaluated_fingerprint: Optional[tuple] = None
         self.last_successfully_notified_fingerprint: Optional[tuple] = None
         self.last_notified_status: Optional[str] = None
@@ -138,7 +137,6 @@ class SessionState:
         self.last_accepted_oi_timestamp = None
         self.oi_snapshot_buffer.clear()
         self.last_alerted_oi_phase = None
-        self.last_oi_event_fingerprint = None
         self.latest_evaluated_fingerprint = None
         self.last_successfully_notified_fingerprint = None
         self.last_notified_status = None
@@ -682,21 +680,15 @@ async def run_cycle() -> None:
                 if status_changed:
                     should_alert = True
                 else:
-                    # In GO: alert on score change, condition status change, or OI Phase shift (ADR-017)
+                    # In GO: alert on score change or condition status change (other condition or oi_flow flip)
                     score_changed = (
                         state.last_notified_score is not None
                         and state.last_notified_score != score.score
-                    )
-                    phase_changed = (
-                        current_oi_phase is not None
-                        and state.last_alerted_oi_phase is not None
-                        and current_oi_phase != state.last_alerted_oi_phase
                     )
                     should_alert = (
                         other_condition_status_changed
                         or oi_flow_flipped
                         or score_changed
-                        or phase_changed
                     )
             else:
                 # Change 1: Suppress Sub-Indicator Jitter While in CAUTION / AVOID (Score < 6)

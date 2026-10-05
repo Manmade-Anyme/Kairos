@@ -291,7 +291,7 @@ class Notifier:
         error_detail: str,
         last_signal_time: datetime | None,
         action_hint: str,
-    ) -> None:
+    ) -> bool:
         """
         Post critical system failure to #system-check.
         Tells trader not to trade based on last signal.
@@ -315,7 +315,17 @@ class Notifier:
             "─" * 34,
             "**DO NOT trade based on last GO signal.**",
         ])
-        await self._post(settings.discord_health_webhook_url, {"content": content})
+        return await self._post(settings.discord_health_webhook_url, {"content": content})
+
+    async def post_supabase_recovered(self) -> bool:
+        """Confirm restored bridge access without claiming a fresh market signal."""
+        content = (
+            "✅ **SUPABASE CONNECTION RESTORED**\n"
+            "Session configuration is readable again.\n"
+            "Monitoring follows the active session and market schedule; "
+            "wait for a fresh environment alert."
+        )
+        return await self._post(settings.discord_health_webhook_url, {"content": content})
 
     async def post_stale_signal_warning(
         self,

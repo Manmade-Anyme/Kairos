@@ -71,6 +71,8 @@ create table if not exists environment_log (
     move_ratio      text not null,
     vwap_distance   text not null,
     iv_capped       boolean not null default false,
+    ce_oi_change    bigint not null default 0,
+    pe_oi_change    bigint not null default 0,
     summary_raw     text,                           -- Python-generated template string
     summary         text                            -- Gemini-polished (filled by Discord Orchestrator)
 );

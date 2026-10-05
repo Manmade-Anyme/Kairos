@@ -17,7 +17,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from loguru import logger
 
 from kairos.config import settings
-from kairos.db import db, load_dhan_credentials_from_supabase
+from kairos.db import SessionReadError, db, load_dhan_credentials_from_supabase
 from kairos.engine import OIFlowBuffer, evaluate
 from kairos.fetcher import DhanAPIError, DhanAuthError, fetcher
 from kairos.models import ConditionResult, OHLCVCandle, PreviousDayLevels, SessionConfig
@@ -126,6 +126,10 @@ class SessionState:
         # API health
         self.dhan_ok: bool = True
         self.supabase_ok: bool = True
+        self.supabase_warning_sent: bool = False
+        self.supabase_recovery_pending: bool = False
+        # Cycle and heartbeat share outage state; serialize reads and notifications.
+        self.supabase_health_lock = asyncio.Lock()
         self.iv_cap_active: bool = False
 
 
@@ -290,6 +294,35 @@ async def run_startup_checks(config: SessionConfig) -> bool:
 # Main scoring cycle — runs every 60 seconds
 # ─────────────────────────────────────────────────────────────────────────────
 
+async def read_session_with_health_check() -> Optional[SessionConfig]:
+    """Report a bridge outage once, retry failed delivery, and report recovery."""
+    async with state.supabase_health_lock:
+        try:
+            config = await db.get_active_session()
+        except SessionReadError:
+            state.supabase_ok = False
+            state.supabase_recovery_pending = False
+            if not state.supabase_warning_sent:
+                sent = await notifier.post_critical_alert(
+                    error_type="Supabase Session Read Failed",
+                    error_detail="Monitoring is paused because session configuration is unavailable.",
+                    last_signal_time=state.last_successful_cycle_time,
+                    action_hint="Check Supabase connectivity, session_config schema, and worker permissions.",
+                )
+                state.supabase_warning_sent = bool(sent)
+            return None
+
+        state.supabase_ok = True
+        if state.supabase_warning_sent:
+            state.supabase_recovery_pending = True
+            state.supabase_warning_sent = False
+        if state.supabase_recovery_pending:
+            sent = await notifier.post_supabase_recovered()
+            if sent:
+                state.supabase_recovery_pending = False
+        return config
+
+
 async def run_cycle() -> None:
     """
     One complete scoring cycle.
@@ -297,7 +330,9 @@ async def run_cycle() -> None:
     Uses asyncio.gather for concurrent API calls to prevent cycle drift.
     """
     # 1. Read session config
-    config = await db.get_active_session()
+    config = await read_session_with_health_check()
+    if not state.supabase_ok:
+        return  # Pause on an unreadable bridge without treating it as a stopped session.
     if config is None or config.status == "STOPPED":
         if state.in_session:
             state.in_session = False
@@ -736,11 +771,10 @@ async def run_cycle() -> None:
 
 async def run_heartbeat() -> None:
     """
-    Posts a heartbeat to #system-check every 5 minutes.
-    Also checks if scoring cycle has gone silent (stale signal detection).
-    Heartbeats are suppressed when no active session exists.
+    Checks the session bridge and stale scoring every five minutes.
+    Routine Discord heartbeats remain suppressed; bridge failures still alert.
     """
-    config = await db.get_active_session()
+    config = await read_session_with_health_check()
     if config is None or config.status == "STOPPED":
         return  # no active session — suppress heartbeat
 

@@ -80,6 +80,8 @@ Contains the exact cycle-by-cycle scoring results. Central hub for triggering Or
 * **score** [INTEGER] -> 0 to 8
 * **status** [TEXT] -> "GO", "CAUTION", "AVOID"
 * **iv_capped** [BOOLEAN] -> True if score was nerfed to CAUTION due to IV contraction
+* **ce_oi_change** [BIGINT NOT NULL DEFAULT 0] -> Call-side OI change written by the scoring engine
+* **pe_oi_change** [BIGINT NOT NULL DEFAULT 0] -> Put-side OI change written by the scoring engine
 * **summary_raw** [TEXT] -> Python-generated machine string of condition hits
 * **summary** [TEXT] -> Orchestrator/Gemini writes the polished response here
 
@@ -94,10 +96,21 @@ While the Orchestrator manages the conversational slash commands, **the Python e
 
 1. **`#environment`**: (Powered by `discord_webhook_url`)
    - The Python engine posts state changes here (e.g., transitioning from AVOID to GO). 
-   - **Noise Reduction**: Alerts are silenced when the score is below 6. If the score drops below 6, it alerts once and stays silent until a score >= 6 is achieved.
+   - **Noise Reduction**: After warmup, the first result is sent even if it is CAUTION or AVOID. During low-score periods, diagnostic detail changes remain silent; environment or condition color changes still alert. OI Flow alerts only on RED ↔ GREEN flips. Favorable GO results also alert on score changes.
    - These alerts are clean, structured grids showing condition scores mapped via emojis (🟢, 🟡, 🔴).
 2. **`#system-check`**: (Powered by `discord_health_webhook_url`)
-   - The Python engine will post a `💓 HEARTBEAT` every 5 minutes during active sessions.
+   - Routine five-minute heartbeats are logged locally and suppressed in Discord under ADR-006.
+   - Supabase session-read failures pause monitoring and send one critical warning per outage. Failed warning deliveries retry on subsequent checks; restored access produces a recovery notice, including when no ACTIVE session exists. Failed recovery deliveries also retry on subsequent successful reads. A later outage can send a new warning even if the previous recovery notice was not delivered.
    - It will post critical alerts, startup warm-up timers, and stale-signal warnings if the API endpoints (Dhan) fail to respond. 
 
 The Orchestrator can leverage this logic to ensure its own administrative alerts route to the same locations without muddying the clean `#environment` channel.
+
+## 5. Deployment and Recovery Checks
+
+The headless worker uses a server-side Supabase service-role key. Keep this key out of public clients and Discord messages. The current bridge tables have RLS enabled without client policies; an orchestrator using an anon/authenticated key needs explicit, scoped authorization before it can create a session. Do not resolve this by granting public write access.
+
+`environment_log` must include `ce_oi_change` and `pe_oi_change` as bigint fields with a zero default, matching the worker's score payload. Apply the tracked migrations under `supabase/migrations/` before deploying code that depends on them.
+
+To verify recovery, confirm the intended ACTIVE session is visible, today's market levels/expiries refresh, and score rows advance every minute with OI fields populated. Observe startup/health delivery and the first environment notification after the normal warmup period. An empty session table correctly leaves the worker idle; a failed session read is a system fault and now alerts separately.
+
+A transient session-read outage pauses the cycle while preserving session membership, candle/IV/OI history, and warmup progress. The first scoring cycle that successfully reads the same ACTIVE session resumes normal scoring and alert delivery, subject to the existing market schedule and alert rules. A confirmed inactive session, changed configuration, or market boundary still follows the normal session transition rules.

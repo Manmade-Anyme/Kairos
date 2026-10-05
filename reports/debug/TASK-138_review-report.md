@@ -48,3 +48,26 @@ return config
 - Network-free recurring-outage reproduction: initially confirmed the P2 finding; independent final replay passed after correction.
 
 All four review axes pass for the final patch. The local approval does not establish live Supabase/Fly/Discord verification; the parent agent's re-audit remains necessary. No external review, comment, commit, deployment, or production mutation was made.
+
+## Follow-up review — Preserve the warm session during bridge outages
+
+**Verdict:** APPROVE for the follow-up diff against `f46f7dd`; no remaining blockers found.
+**Trigger:** PR 18's later P1 finding identified an additional failure missed by the initial review: a session-read outage returned `None` and entered the genuine inactive-session branch. This cleared `state.in_session`; the next readable ACTIVE session consequently reset buffers and repeated warmup. The prior approval above records the initial review, not this subsequently discovered issue.
+
+**Verified correction:** [scheduler.py](/Users/manmadeanyme/Documents/Work/Kairos/src/kairos/scheduler.py:333) now exits before inactive-session handling when the helper has established an unreadable bridge:
+
+```python
+config = await read_session_with_health_check()
+if not state.supabase_ok:
+    return  # Pause on an unreadable bridge without treating it as a stopped session.
+```
+
+The helper sets `supabase_ok=False` on `SessionReadError`, so the guard preserves session membership, completed warmup, buffers, and notification references while preventing market fetching or scoring. A successful read sets it `True` before returning, including when no ACTIVE session exists; genuine inactivity therefore still clears `in_session`. The unchanged configuration and schedule gates execute normally once the bridge is readable.
+
+**Concurrency:** Both scheduled jobs serialize the helper under its existing asyncio lock. Returning from the helper and executing this immediate guard introduces no intervening await; the heartbeat cannot replace the observed health state between these steps in the supported single event loop. The heartbeat already returns on an outage's `None`, so preserving session membership does not introduce an additional stale-signal notification during that failure.
+
+**Independent replay:** Confirmed that both readable `None` and explicit STOPPED configurations end an existing session. Concurrent cycle/heartbeat outage checks preserved a warm session, delivered one critical warning, and sent no stale-signal warning despite an old last-cycle timestamp. Recovery into the midday gap applied the usual exit boundary. Changed-configuration and session-transition regression tests also pass in the full suite.
+
+**Regression coverage:** `test_bridge_outage_preserves_warm_session_and_resumes_alerts` exercises an outage through each scheduled job, then verifies same-session recovery scores and sends the next environment alert without resets or repeated boundary/warmup notifications. `test_confirmed_inactive_session_ends_existing_session` covers the distinction from genuine inactivity. Existing completed-candle freshness and gap validation remain unchanged.
+
+**Validation:** Full suite **232 passed**, two existing Supabase deprecation warnings; `git diff --check` passed. The independent network-free replay passed. Reviewed the matching integration/changelog text. No source/test changes, network operations, commits, deployment, or external comments were performed by this reviewer.

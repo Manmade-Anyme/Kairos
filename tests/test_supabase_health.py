@@ -117,6 +117,13 @@ async def test_inactive_session_does_not_send_health_messages(bridge):
     assert notifications.mock_calls == []
 
 
+async def test_confirmed_inactive_session_ends_existing_session(bridge):
+    scheduler.state.in_session = True
+    await scheduler.run_cycle()
+    assert not scheduler.state.in_session
+    assert scheduler.state.supabase_ok
+
+
 async def test_raw_database_error_is_not_sent_to_discord(bridge):
     _, query, notifications = bridge
     query.execute.side_effect = RuntimeError("sensitive connection details")

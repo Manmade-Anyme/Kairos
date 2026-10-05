@@ -112,3 +112,5 @@ The headless worker uses a server-side Supabase service-role key. Keep this key 
 `environment_log` must include `ce_oi_change` and `pe_oi_change` as bigint fields with a zero default, matching the worker's score payload. Apply the tracked migrations under `supabase/migrations/` before deploying code that depends on them.
 
 To verify recovery, confirm the intended ACTIVE session is visible, today's market levels/expiries refresh, and score rows advance every minute with OI fields populated. Observe startup/health delivery and the first environment notification after the normal warmup period. An empty session table correctly leaves the worker idle; a failed session read is a system fault and now alerts separately.
+
+A transient session-read outage pauses the cycle while preserving session membership, candle/IV/OI history, and warmup progress. The first scoring cycle that successfully reads the same ACTIVE session resumes normal scoring and alert delivery, subject to the existing market schedule and alert rules. A confirmed inactive session, changed configuration, or market boundary still follows the normal session transition rules.

@@ -75,6 +75,66 @@ def dummy_score():
 
 from unittest.mock import AsyncMock
 
+@pytest.mark.parametrize("outage_job", [run_cycle, run_heartbeat])
+async def test_bridge_outage_preserves_warm_session_and_resumes_alerts(
+    mock_dependencies, dummy_session, dummy_candle, dummy_levels, dummy_score,
+    mocker, monkeypatch, outage_job,
+):
+    import kairos.scheduler as sched
+    from kairos.db import SessionReadError
+
+    session_state = sched.SessionState()
+    monkeypatch.setattr(sched, "state", session_state)
+    session_state.startup_done = session_state.in_session = session_state.warmup_complete = True
+    session_state.active_config = dummy_session
+    session_state.prev_levels = dummy_levels
+    session_state.candle_buffer.append(dummy_candle)
+    session_state.iv_buffer.extend([12.0] * 15)
+    session_state.oi_snapshot_buffer.append({(22000, "CE"): 100})
+    session_state.cycle_count = 20
+    candles = list(session_state.candle_buffer)
+    iv_history = list(session_state.iv_buffer)
+    oi_history = list(session_state.oi_snapshot_buffer)
+    oi_flow_history = session_state.oi_flow_buffer
+    reset = mocker.spy(session_state, "reset_buffers")
+
+    sched.db.get_active_session = AsyncMock(side_effect=[SessionReadError("transient"), dummy_session])
+    sched.db.write_environment_log = AsyncMock()
+    sched.fetcher.get_option_chain = AsyncMock(return_value=[])
+    sched.fetcher.get_latest_candle = AsyncMock(return_value=dummy_candle)
+    sched.notifier.post_critical_alert = AsyncMock(return_value=True)
+    sched.notifier.post_supabase_recovered = AsyncMock(return_value=True)
+    sched.notifier.post_environment_alert = AsyncMock(return_value=True)
+    sched.notifier.post_session_boundary = AsyncMock()
+    sched.notifier.post_warmup_complete = AsyncMock()
+    mocker.patch("kairos.scheduler.evaluate", return_value=dummy_score)
+
+    await outage_job()
+
+    assert session_state.in_session and session_state.warmup_complete
+    assert list(session_state.candle_buffer) == candles
+    assert list(session_state.iv_buffer) == iv_history
+    assert list(session_state.oi_snapshot_buffer) == oi_history
+    assert session_state.oi_flow_buffer is oi_flow_history
+    assert session_state.cycle_count == 20
+    sched.notifier.post_critical_alert.assert_awaited_once()
+    sched.fetcher.get_option_chain.assert_not_awaited()
+    sched.notifier.post_environment_alert.assert_not_awaited()
+
+    await sched.run_cycle()
+
+    reset.assert_not_called()
+    assert session_state.in_session and session_state.warmup_complete
+    assert session_state.cycle_count == 21
+    assert list(session_state.iv_buffer) == iv_history
+    assert session_state.oi_snapshot_buffer[0] == oi_history[0]
+    assert session_state.oi_flow_buffer is oi_flow_history
+    sched.notifier.post_supabase_recovered.assert_awaited_once()
+    sched.db.write_environment_log.assert_awaited_once_with(dummy_score)
+    sched.notifier.post_environment_alert.assert_awaited_once_with(dummy_score)
+    sched.notifier.post_session_boundary.assert_not_awaited()
+    sched.notifier.post_warmup_complete.assert_not_awaited()
+
 @pytest.mark.asyncio
 async def test_run_startup_checks(mock_dependencies, dummy_session, dummy_levels, mocker):
     import kairos.scheduler as sched

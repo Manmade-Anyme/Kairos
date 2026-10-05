@@ -331,6 +331,8 @@ async def run_cycle() -> None:
     """
     # 1. Read session config
     config = await read_session_with_health_check()
+    if not state.supabase_ok:
+        return  # Pause on an unreadable bridge without treating it as a stopped session.
     if config is None or config.status == "STOPPED":
         if state.in_session:
             state.in_session = False

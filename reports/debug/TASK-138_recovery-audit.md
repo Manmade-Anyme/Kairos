@@ -63,3 +63,11 @@ These findings remain separate from the repaired notification outage:
 - Routine five-minute Discord heartbeats remain intentionally suppressed under ADR-006. Identical low-score results can remain silent under MANM-137; those are expected behaviors.
 
 The schema migration and restored session are already live. The code is live on Fly; the feature branch will be presented in one PR for review and merge. No automatic PR merge is performed.
+
+## PR #18 follow-up — preserve state during a transient outage
+
+The [P1 review comment](https://github.com/Manmade-Anyme/Kairos/pull/18#discussion_r4181870721) identified that the health helper still returns `None` on a read failure. The scoring cycle incorrectly processed this as a confirmed inactive session and cleared `in_session`; the next successful read reset the candle, IV, and OI buffers and restarted warmup.
+
+A new cycle-level regression reproduced `in_session=False` after a transient error in a warm session. The cycle now returns immediately when the bridge health check fails, before inactive-session handling. Regression coverage verifies preserved history, warmup, and session membership; no fetch or environment alert during the outage; and a score write plus qualifying environment alert on the first successful recovery cycle, without session-entry or warmup notifications. A separate test confirms a successfully read empty session still ends monitoring normally.
+
+The follow-up suite passes **232 tests**, with the same two dependency deprecation warnings. This addendum describes the PR follow-up, not a new production rollout. Fly release 56 and source hashes above remain the initial repair's production evidence; the subsequent guard will be deployed through the existing main-branch workflow after PR merge.

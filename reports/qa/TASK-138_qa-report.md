@@ -54,3 +54,23 @@ The latest completed [Fly Deploy run](https://github.com/Manmade-Anyme/Kairos/ac
 ## Recommendation
 
 Local QA approves the final repair. Continue with the separate PR review and production recovery audit. Do not infer production code rollout or Discord receipt from this local QA result. No external reviews, comments, commits, deployments, or service mutations were performed by this QA agent.
+
+## PR #18 P1 follow-up — preserve a warm session during bridge outages
+
+**Date:** 2026-10-05
+**Verdict:** PASS — follow-up regression and changed-code coverage gate cleared.
+**Comparison point:** `f46f7dd`, the initial repair commit. The evidence above describes the original audit and is retained unchanged.
+
+The follow-up adds an early return at `src/kairos/scheduler.py:334–335` when the session bridge is unreadable. A transient outage now pauses scoring while preserving the existing warm session, instead of marking it stopped and forcing another warmup after recovery. A successful read that confirms inactivity still ends the session.
+
+QA independently reproduced the reported failure by running the three new test cases against an isolated copy of the `f46f7dd` source. The cycle-outage case failed at `tests/test_scheduler.py:114`: `session_state.in_session` became `False` and the old scheduler logged `Session stopped`. The heartbeat-outage case and confirmed-inactivity case passed, yielding **1 failed / 2 passed** before the fix.
+
+With the current source, the complete suite passes **232 / 232 tests**, including all three new cases. The same two existing Supabase SDK deprecation warnings remain. The parametrized warm-session test verifies preserved candle, IV and OI history, cycle count, and OI flow buffer; no fetching or environment alert during the outage; and an immediate environment-log write and Discord alert on the next successful cycle. It also asserts that recovery does not reset buffers or emit new session-boundary/warmup notifications. The separate confirmed-inactivity test proves legitimate session termination remains functional. These assertions exercise the reported runtime behavior rather than mirroring the new conditional.
+
+| Follow-up changed-code metric | Result |
+|---|---:|
+| Executable lines `334`, `335` | 2 / 2 — 100% |
+| Branch exits `334 → 335`, `334 → 336` | 2 / 2 — 100% |
+| Uncovered changed lines or branches | None |
+
+Branch coverage was collected with the same full-suite command shown above, using `/tmp/kairos-task138-followup-qa.coverage`; the JSON output is `/tmp/kairos-task138-followup-qa-coverage.json`. `git diff --check` passes. QA made no source/test changes, network calls, commits, deployments, or external comments during this follow-up. Local QA clears the follow-up; deployment and production delivery evidence remain separate coordinator checks.

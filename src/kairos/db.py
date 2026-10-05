@@ -22,6 +22,10 @@ from kairos.models import (
 IST = ZoneInfo("Asia/Kolkata")
 
 
+class SessionReadError(RuntimeError):
+    """The session bridge could not be read; monitoring must pause."""
+
+
 class SupabaseDB:
     """
     Async Supabase client wrapper.
@@ -65,7 +69,7 @@ class SupabaseDB:
     async def get_active_session(self) -> Optional[SessionConfig]:
         """
         Read the active session config written by Discord Orchestrator after /start-monitor.
-        Returns None if no active session exists.
+        Returns None if no active session exists; raises SessionReadError on failure.
         """
         self._check_client()
         try:
@@ -88,7 +92,7 @@ class SupabaseDB:
             )
         except Exception as e:
             logger.error(f"Failed to read session_config: {e}")
-            return None
+            raise SessionReadError("Unable to read active session from Supabase") from e
 
     async def set_active_session(self, symbol: str, expiry: date, expiry_type: str = "WEEKLY") -> None:
         """
@@ -336,4 +340,3 @@ async def load_dhan_credentials_from_supabase() -> None:
     except Exception as e:
         logger.error(f"Failed to load Dhan credentials from Supabase: {e}")
         raise
-

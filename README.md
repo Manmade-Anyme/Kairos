@@ -94,7 +94,7 @@ Copy the `.env.example` to `.env` and fill out your local secrets.
 | Variable | Description |
 |---|---|
 | `SUPABASE_URL` | Your Supabase project URL (`https://xyz.supabase.co`). |
-| `SUPABASE_KEY` | Public `anon` API key for Supabase restricted via RLS. |
+| `SUPABASE_KEY` | Server-side service-role key for the headless worker; never expose it in public clients. |
 | `DISCORD_WEBHOOK_URL` | Webhook URL for the `#environment` channel. |
 | `DISCORD_HEALTH_WEBHOOK_URL`| Webhook URL for the `#system-check` channel. |
 | `OI_LOOKBACK_CYCLES` | (Optional) Num cycles for OI delta calculation (default: 5). |

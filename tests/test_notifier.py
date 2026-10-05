@@ -131,6 +131,19 @@ async def test_all_notifier_methods():
     await notifier.stop()
 
 
+@pytest.mark.parametrize("status_code,expected", [(204, True), (500, False)])
+@respx.mock
+async def test_supabase_recovery_delivery_result(status_code, expected):
+    route = respx.post(settings.discord_health_webhook_url).respond(status_code=status_code)
+    notifier = Notifier()
+    await notifier.start()
+    try:
+        assert await notifier.post_supabase_recovered() is expected
+    finally:
+        await notifier.stop()
+    assert "SUPABASE CONNECTION RESTORED" in route.calls.last.request.content.decode()
+
+
 @pytest.mark.asyncio
 @respx.mock
 async def test_iv_cap_message_suppressed_at_low_score(dummy_score):

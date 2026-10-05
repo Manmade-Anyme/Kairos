@@ -116,7 +116,7 @@ async def test_db_extra_methods(mock_supabase):
     await db.start()
     
     class FakeResult:
-        data = [{"expiry": "2026-03-26", "expiry_type": "WEEKLY", "fetched_at": "2026-03-23T00:00:00"}]
+        data = [{"symbol": "NIFTY", "expiry": "2026-03-26", "expiry_type": "WEEKLY", "status": "ACTIVE", "fetched_at": "2026-03-23T00:00:00"}]
     mock_supabase._execute.return_value = FakeResult()
     
     score = EnvironmentScore(

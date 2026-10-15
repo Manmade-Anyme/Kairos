@@ -1,34 +1,31 @@
 # Session Checkpoint
-**Date:** 2026-09-09
-**Session:** #12 (Addressing 4 PR Reviewer P2s -> Dispatched to Code Generator)
+**Date:** 2026-10-16
+**Session:** #14 (TASK-260 Fly.io to AWS Migration Architecture ADR Authored by Software Architect)
 
 ## Completed This Session
-- Stage 1 (Architecture): PASS — ADR `directives/adr/TASK-127_momentum-filter-audit-remediation.md` authored and synced to Obsidian
-- Stage 2 (Implementation): PASS — Remediated momentum filter, opened PR #16
-- Stage 3 (Documentation): PASS — Updated `docs/scoring_architecture.md` and `CHANGELOG.md`, synced to Obsidian
-- Stage 4 (PR Review): PASS (Round 1) — Spec/ADR compliance confirmed
-- Stage 4 (QA Gate): PASS (Round 2) — 199 tests pass, 100% diff coverage on PR #16
-- Code Reviewer (`chatgpt-codex-connector[bot]`) added 4 P2 review comments on PR #16
+- **Stage 1 (Software Architect):**
+  - Conducted architectural evaluation across 4 AWS candidates in Mumbai (`ap-south-1`): ECS on Fargate, App Runner, Lightsail VPS/Containers, and EC2 t4g.micro.
+  - Authored comprehensive ADR `directives/adr/TASK-260_flyio_to_aws_migration_architecture.md` selecting AWS ECS on Fargate as the primary recommendation with EventBridge market-hours scheduling (`desired_count=1` at 08:50 IST, `desired_count=0` at 15:30 IST).
+  - Formulated comprehensive trade-off matrix across cost, latency (sub-5ms), daemon fit (headless background polling), failure auto-restart, and maintenance.
+  - Specified zero-trust secrets management leveraging AWS SSM Parameter Store SecureString parameters for bootstrap secrets, keeping dynamic Dhan tokens within Supabase `api_keys` per ADR-022.
+  - Defined 5-phase zero-downtime rollout featuring a 1–2 day live market shadow dual-run and 60-second instant rollback runbook.
+  - Updated `directives/adr/INDEX.md`, `tasks/SPRINT_PLAN.md`, `tasks/BACKLOG.md`.
+  - Synchronized documentation to Obsidian vault (`~/Documents/Obsidian/Projects/Kairos/`).
 
 ## Open Tasks
-- TASK-127 (MANM-127) Fix momentum filter — status: in_progress
-  - Code Generator Agent addressing 4 P2 review items:
-    1. Reject candle buffer size smaller than required momentum history in `src/kairos/config.py`.
-    2. Emit a data-unavailable result for stale candles in `src/kairos/scheduler.py` without abandoning the cycle.
-    3. Use configured session boundaries (`settings.session_1_*`, `settings.session_2_*`) when classifying momentum sessions in `src/kairos/processor.py`.
-    4. Prepend evaluated timestamp `[{ts_str}] ` to all readiness failure returns in `src/kairos/processor.py`.
-  - PR: https://github.com/Manmade-Anyme/Kairos/pull/16
+- TASK-260 [MANM-260] Explore Fly.io to AWS Migration — status: in_review / pending human approval
+  - Human sign-off on ADR `TASK-260_flyio_to_aws_migration_architecture.md`.
+  - Upon approval: Project Manager to dispatch Code Generator for Stage 2 (IaC & GitHub Actions workflow implementation).
+- TASK-127 [MANM-127] Fix momentum filter — status: in_progress (PR #16)
 
 ## Blockers
-- None
+- Awaiting human approval on ADR before dispatching Code Generator.
 
 ## Agent States
-- Project Manager: Dispatched Code Generator Agent with comprehensive 4-item P2 remediation directives
-- Software Architect: Idle (ADR complete)
-- Code Generator: Active (Addressing 4 P2 review comments)
-- Documentation Agent: Idle
-- PR Reviewer Agent: Idle
-- QA Agent: Awaiting Code Generator H1 PASS for Round 3 re-verification
+- Project Manager: Stage 0 complete.
+- Software Architect: Stage 1 complete (ADR delivered and submitted for review).
+- Code Generator: Idle / working TASK-127 PR #16; awaits ADR approval for TASK-260.
+- QA: Idle.
 
 ## Resume Instructions
-Code Generator Agent to implement all 4 P2 fixes, add unit tests, ensure 100% diff coverage, push to `feature/MANM-127-fix-momentum-filter`, and report H1 PASS. Then QA Agent re-verifies.
+Upon human approval of `directives/adr/TASK-260_flyio_to_aws_migration_architecture.md`, Project Manager dispatches Code Generator to create ECR/ECS Terraform/CloudFormation templates and GitHub Actions deployment workflow `.github/workflows/aws-ecs-deploy.yml`.

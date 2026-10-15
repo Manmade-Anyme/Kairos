@@ -1,34 +1,26 @@
 # Session Checkpoint
-**Date:** 2026-09-09
-**Session:** #12 (Addressing 4 PR Reviewer P2s -> Dispatched to Code Generator)
+**Date:** 2026-10-16
+**Session:** #13 (TASK-260 Fly.io to AWS Migration Exploration Dispatched to Software Architect)
 
 ## Completed This Session
-- Stage 1 (Architecture): PASS — ADR `directives/adr/TASK-127_momentum-filter-audit-remediation.md` authored and synced to Obsidian
-- Stage 2 (Implementation): PASS — Remediated momentum filter, opened PR #16
-- Stage 3 (Documentation): PASS — Updated `docs/scoring_architecture.md` and `CHANGELOG.md`, synced to Obsidian
-- Stage 4 (PR Review): PASS (Round 1) — Spec/ADR compliance confirmed
-- Stage 4 (QA Gate): PASS (Round 2) — 199 tests pass, 100% diff coverage on PR #16
-- Code Reviewer (`chatgpt-codex-connector[bot]`) added 4 P2 review comments on PR #16
+- Stage 0 (Product Management): Authored structured directive `directives/TASK-260_explore_flyio_to_aws_migration.md` defining goals, latency constraints (Mumbai `ap-south-1`), input specifications, trade-off matrix requirements, and acceptance criteria.
+- Updated `tasks/BACKLOG.md` and created `tasks/SPRINT_PLAN.md` with active items.
+- Prepared handoff to Software Architect directly on ticket MANM-260.
 
 ## Open Tasks
-- TASK-127 (MANM-127) Fix momentum filter — status: in_progress
-  - Code Generator Agent addressing 4 P2 review items:
-    1. Reject candle buffer size smaller than required momentum history in `src/kairos/config.py`.
-    2. Emit a data-unavailable result for stale candles in `src/kairos/scheduler.py` without abandoning the cycle.
-    3. Use configured session boundaries (`settings.session_1_*`, `settings.session_2_*`) when classifying momentum sessions in `src/kairos/processor.py`.
-    4. Prepend evaluated timestamp `[{ts_str}] ` to all readiness failure returns in `src/kairos/processor.py`.
-  - PR: https://github.com/Manmade-Anyme/Kairos/pull/16
+- TASK-260 [MANM-260] Explore Fly.io to AWS Migration — status: in_progress
+  - Assigned: Software Architect (Stage 1: Architecture & ADR formulation)
+  - Next deliverable: ADR evaluating ECS Fargate, App Runner, Lightsail, and EC2 in Mumbai (`ap-south-1`) with cost, latency, and lifecycle matrix.
+- TASK-127 [MANM-127] Fix momentum filter — status: in_progress (PR #16)
 
 ## Blockers
-- None
+- None.
 
 ## Agent States
-- Project Manager: Dispatched Code Generator Agent with comprehensive 4-item P2 remediation directives
-- Software Architect: Idle (ADR complete)
-- Code Generator: Active (Addressing 4 P2 review comments)
-- Documentation Agent: Idle
-- PR Reviewer Agent: Idle
-- QA Agent: Awaiting Code Generator H1 PASS for Round 3 re-verification
+- Project Manager: Complete on Stage 0 directive; handing off to Software Architect on ticket MANM-260.
+- Software Architect: Assigned TASK-260 Stage 1 (ADR creation).
+- Code Generator: Idle / working TASK-127 PR #16.
+- QA: Idle.
 
 ## Resume Instructions
-Code Generator Agent to implement all 4 P2 fixes, add unit tests, ensure 100% diff coverage, push to `feature/MANM-127-fix-momentum-filter`, and report H1 PASS. Then QA Agent re-verifies.
+Software Architect to produce ADR `directives/adr/TASK-260_flyio_to_aws_migration_architecture.md`, evaluate candidate AWS architectures against Fly.io, provide trade-off matrix, sync to Obsidian vault, and report back on ticket MANM-260.

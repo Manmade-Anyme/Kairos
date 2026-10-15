@@ -13,6 +13,7 @@
 ### TASK-260 [MANM-260]: Explore Fly.io to AWS Migration
 - **Status:** In Progress (Architecture / Exploration Phase)
 - **Priority:** Medium
+- **PR:** https://github.com/Manmade-Anyme/Kairos/pull/19
 - **Assigned:** Software Architect (Leader: Project Manager)
 - **Current Phase:** Architecture & Feasibility Exploration
 - **Directive:** `directives/TASK-260_explore_flyio_to_aws_migration.md`

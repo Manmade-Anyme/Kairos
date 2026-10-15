@@ -11,11 +11,11 @@
 - **Acceptance Criteria:** All 4 P2 items resolved with unit tests, 100% diff coverage, QA re-verification PASS
 
 ### TASK-260 [MANM-260]: Explore Fly.io to AWS Migration
-- **Status:** In Progress (Architecture / Exploration Phase)
+- **Status:** In Progress (Architecture Authored / Pending Human Approval)
 - **Priority:** Medium
 - **PR:** https://github.com/Manmade-Anyme/Kairos/pull/19
 - **Assigned:** Software Architect (Leader: Project Manager)
-- **Current Phase:** Architecture & Feasibility Exploration
+- **Current Phase:** ADR Authored (`directives/adr/TASK-260_flyio_to_aws_migration_architecture.md`); Pending human sign-off before Code Generator handoff
 - **Directive:** `directives/TASK-260_explore_flyio_to_aws_migration.md`
 - **Acceptance Criteria:** Comprehensive ADR covering AWS compute architectures, cost & latency matrix, secrets strategy, and rollout plan; Obsidian vault synchronized
 

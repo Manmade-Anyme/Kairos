@@ -7,7 +7,8 @@
 ### 1. TASK-260 [MANM-260]: Explore Fly.io to AWS Migration
 - **Objective:** Architectural evaluation, trade-off analysis, and ADR creation for hosting the Kairos scheduler daemon on AWS.
 - **Assigned:** Software Architect
-- **Handoff:** Project Manager -> Software Architect via single-ticket dispatch
+- **Handoff:** Project Manager -> Software Architect (ADR authored) -> Human Approval / Code Generator
+- **Status:** ADR Authored (`directives/adr/TASK-260_flyio_to_aws_migration_architecture.md`); Pending human approval
 - **Key Deliverables:** ADR in `directives/adr/TASK-260_flyio_to_aws_migration_architecture.md`, cost/latency matrix, rollout/fallback runbook.
 
 ### 2. TASK-127 [MANM-127]: Fix Momentum Filter
